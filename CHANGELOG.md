@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.1.0] - 2026-06-08
+
+### Added
+
+- `queryPedometerDataBetweenDates(start, end)` — iOS Core Motion range query (additive; live session unchanged).
+- `addStepCounterErrorListener`, `addStepsSensorInfoListener`, and `addStepDetectedListener` for native events.
+- `isSensorWorking()` — reports whether the library has an active live subscription.
+- Optional `calories` on `StepCountData` and optional `working` on `isStepCountingSupported()` (Android).
+
 ## [1.0.2] - 2026-06-08
 
 ### Changed

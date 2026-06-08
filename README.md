@@ -15,6 +15,8 @@ A React Native TurboModule for live step counting on iOS and Android.
 - **Android** — Hardware step counter (`TYPE_STEP_COUNTER`) with accelerometer fallback
 - **New Architecture** — TurboModule / Fabric (required)
 - **Live updates** — Event-based API with start/stop lifecycle
+- **Historical query (iOS)** — `queryPedometerDataBetweenDates()` for cumulative steps in a date range
+- **Native events** — Optional listeners for errors, sensor metadata, and step detection
 - **Optional filtering** — `createStepCountFilter()` reduces false positives from rapid motion
 - **Utilities** — `parseStepData()` for display-friendly formatting
 
@@ -131,10 +133,25 @@ See the full example app: [`example/src/App.tsx`](./example/src/App.tsx).
 
 ### `isStepCountingSupported()`
 
-Returns `Promise<{ supported: boolean; granted: boolean }>`.
+Returns `Promise<{ supported: boolean; granted: boolean; working?: boolean }>`.
 
 - `supported` — device can count steps (hardware sensor or fallback)
 - `granted` — required motion/activity permission has been granted
+- `working` — Android only: whether the native sensor service is currently active
+
+### `queryPedometerDataBetweenDates(start, end)` (iOS only)
+
+Queries cumulative step data for the given range using Core Motion. Returns `Promise<StepCountData>`.
+
+Apple retains roughly seven days of pedometer history; older ranges may return partial data. Does not interfere with an active live session. On Android, throws `UnavailabilityError`.
+
+```tsx
+import { queryPedometerDataBetweenDates } from "@blife/rn-step-counter";
+
+const start = new Date();
+start.setHours(0, 0, 0, 0);
+const today = await queryPedometerDataBetweenDates(start, new Date());
+```
 
 ### `startStepCounterUpdate(start, callback)`
 
@@ -145,6 +162,31 @@ Returns an `EventSubscription`. Call `stopStepCounterUpdate()` to stop.
 ### `stopStepCounterUpdate()`
 
 Stops the active native session and removes the library's event subscription.
+
+### `isSensorWorking()`
+
+Returns `true` when this library has an active subscription from `startStepCounterUpdate`. This reflects the JS-managed session, not Android's native `working` flag.
+
+### Event listeners
+
+Subscribe to native events with the helpers below. Each returns an `EventSubscription`.
+
+```tsx
+import {
+  addStepCounterErrorListener,
+  addStepsSensorInfoListener,
+  addStepDetectedListener,
+} from "@blife/rn-step-counter";
+
+const errorSub = addStepCounterErrorListener((error) => {
+  console.warn(error.message);
+});
+errorSub.remove();
+```
+
+- `addStepCounterErrorListener` — `StepCounter.errorOccurred` (iOS Core Motion errors)
+- `addStepsSensorInfoListener` — `StepCounter.stepsSensorInfo` (capability metadata; fired from `isStepCountingSupported` on iOS and when the Android sensor starts)
+- `addStepDetectedListener` — `StepCounter.stepDetected` (motion detection signal)
 
 ### `createStepCountFilter(options?)`
 
@@ -165,6 +207,7 @@ Formats raw `StepCountData` for display (steps, distance, time range, estimated 
 | `counterType` | `CounterType` | `"CMPedometer"` · `"STEP_COUNTER"` · `"ACCELEROMETER"` |
 | `floorsAscended` | `number?` | iOS only |
 | `floorsDescended` | `number?` | iOS only |
+| `calories` | `number?` | Estimated calories when provided by native |
 
 ## Development
 

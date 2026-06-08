@@ -12,6 +12,7 @@ export type CounterType = "STEP_COUNTER" | "ACCELEROMETER" | "CMPedometer";
  * distance - The distance in meters that the user has walked or run.
  * floorsAscended - number of floors ascended (iOS only)
  * floorsDescended - number of floors descended (iOS only)
+ * calories - estimated calories burned (Android native; iOS may include estimated value)
  */
 export type StepCountData = {
   counterType: CounterType;
@@ -21,17 +22,55 @@ export type StepCountData = {
   distance: number; // distance in meters (android: probably not accurate)
   floorsAscended?: number; // number of floors ascended (iOS only)
   floorsDescended?: number; // number of floors descended (iOS only)
+  calories?: number;
 };
+
+export type StepCountingSupportResult = {
+  supported: boolean;
+  granted: boolean;
+  /** Android only: whether the sensor service is currently active */
+  working?: boolean;
+};
+
+export type StepCounterError = {
+  message: string;
+  code?: number;
+  domain?: string;
+};
+
+export type StepsSensorInfoIOS = {
+  name: string;
+  granted: boolean;
+  stepCounting: boolean;
+  pace: boolean;
+  cadence: boolean;
+  distance: boolean;
+  floorCounting: boolean;
+};
+
+export type StepsSensorInfoAndroid = {
+  name: string;
+  vendor: string;
+  minDelay: number;
+  maxDelay: number;
+  power: number;
+  resolution: number;
+};
+
+export type StepsSensorInfo = StepsSensorInfoIOS | StepsSensorInfoAndroid;
 
 export const NAME = "StepCounter";
 export const VERSION = "0.3.1";
 export const eventName = "StepCounter.stepCounterUpdate";
+export const errorEventName = "StepCounter.errorOccurred";
+export const sensorInfoEventName = "StepCounter.stepsSensorInfo";
+export const stepDetectedEventName = "StepCounter.stepDetected";
 
 export interface Spec extends TurboModule {
   /**
    * @description Check if the step counter is supported on the device.
    * @async
-   * @returns {Promise<{ supported: boolean; granted: boolean }>} Returns the `Promise` object,
+   * @returns {Promise<StepCountingSupportResult>} Returns the `Promise` object,
    * including information such as whether the user's device has a step counter sensor by default (`supported`)
    * and whether the user has allowed the app to measure the pedometer data. (`granted`)
    * granted - The permission is granted or not.
@@ -43,7 +82,13 @@ export interface Spec extends TurboModule {
    *   setStepCountingGranted(granted);
    * });
    */
-  isStepCountingSupported(): Promise<{ supported: boolean; granted: boolean }>;
+  isStepCountingSupported(): Promise<StepCountingSupportResult>;
+  /**
+   * Query cumulative step data for a date range. iOS only (Core Motion).
+   * @param startDate Unix timestamp in milliseconds.
+   * @param endDate Unix timestamp in milliseconds.
+   */
+  queryPedometerDataBetweenDates(startDate: number, endDate: number): Promise<StepCountData>;
   /**
    * @param {number} from the current time obtained by `new Date()` in milliseconds.
    */

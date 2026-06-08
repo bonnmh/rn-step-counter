@@ -4,8 +4,18 @@ import App from "../App";
 // ─── mocks ──────────────────────────────────────────────────────────────────
 
 jest.mock("@blife/rn-step-counter", () => ({
+  addStepCounterErrorListener: jest.fn(() => ({ remove: jest.fn() })),
+  addStepsSensorInfoListener: jest.fn(() => ({ remove: jest.fn() })),
   createStepCountFilter: jest.fn(() => (data: unknown) => data),
+  isSensorWorking: jest.fn().mockReturnValue(false),
   isStepCountingSupported: jest.fn(),
+  queryPedometerDataBetweenDates: jest.fn().mockResolvedValue({
+    counterType: "CMPedometer",
+    steps: 0,
+    startDate: 0,
+    endDate: 0,
+    distance: 0,
+  }),
   startStepCounterUpdate: jest.fn(),
   stopStepCounterUpdate: jest.fn(),
   parseStepData: jest.fn().mockReturnValue({
@@ -51,7 +61,7 @@ describe("App", () => {
   it('shows "Stopped" when sensor is not supported', async () => {
     mockSupported.mockResolvedValue({ supported: false, granted: false });
     render(<App />);
-    expect(await screen.findByText("Stopped")).toBeTruthy();
+    expect(await screen.findByText(/Stopped · idle/)).toBeTruthy();
     expect(mockStart).not.toHaveBeenCalled();
   });
 

@@ -128,6 +128,18 @@ class StepCounterModule(
     stepCounterListener!!.stopService()
   }
 
+  @ReactMethod
+  override fun queryPedometerDataBetweenDates(
+    startDate: Double,
+    endDate: Double,
+    promise: Promise,
+  ) {
+    promise.reject(
+      "ERR_UNAVAILABLE",
+      "queryPedometerDataBetweenDates is not supported on Android",
+    )
+  }
+
   /**
    * Keep: Required for RN built in Event Emitter Support.
    * @param eventName the name of the event. usually "stepCounterUpdate".

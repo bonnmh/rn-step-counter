@@ -1,11 +1,17 @@
 import type { EventSubscription } from "react-native";
 import StepCounterModule, {
+  errorEventName,
   eventName,
   NAME,
+  sensorInfoEventName,
+  stepDetectedEventName,
   VERSION,
   type CounterType,
   type Spec,
   type StepCountData,
+  type StepCountingSupportResult,
+  type StepCounterError,
+  type StepsSensorInfo,
 } from "./NativeStepCounter";
 import { NativeEventEmitter, Platform } from "react-native";
 import { PACKAGE_NAME, REPOSITORY_WEB_URL } from "./packageMeta";
@@ -191,17 +197,102 @@ class UnavailabilityError extends Error {
   }
 }
 
+function normalizeStepCounterError(payload: unknown): StepCounterError {
+  if (payload && typeof payload === "object") {
+    const errorPayload = payload as Record<string, unknown>;
+    const message =
+      typeof errorPayload.message === "string"
+        ? errorPayload.message
+        : typeof errorPayload.localizedDescription === "string"
+          ? errorPayload.localizedDescription
+          : String(payload);
+    return {
+      message,
+      code: typeof errorPayload.code === "number" ? errorPayload.code : undefined,
+      domain: typeof errorPayload.domain === "string" ? errorPayload.domain : undefined,
+    };
+  }
+  return { message: String(payload ?? "Unknown error") };
+}
+
 /**
  * Returns whether the stepCounter is enabled on the device.
  * iOS 8.0+ only. Android is available since KitKat (4.4 / API 19).
  * @see https://developer.android.com/about/versions/android-4.4.html
  * @see https://developer.apple.com/documentation/coremotion/cmpedometer/1613963-isstepcountingavailable
- * @returns {Promise<{ supported: boolean; granted: boolean }>} A promise that resolves with an object containing the stepCounter availability.
+ * @returns {Promise<StepCountingSupportResult>} A promise that resolves with step counter availability.
  * supported - Whether the stepCounter is supported on device.
  * granted - Whether user granted the permission.
+ * working - Android only: whether the native sensor service is currently active.
  */
-export function isStepCountingSupported(): Promise<{ supported: boolean; granted: boolean }> {
+export function isStepCountingSupported(): Promise<StepCountingSupportResult> {
   return StepCounter.isStepCountingSupported();
+}
+
+/**
+ * Query cumulative step data for a date range. iOS only (Core Motion `CMPedometer`).
+ *
+ * Apple retains roughly seven days of pedometer history. Ranges older than that may return
+ * partial or empty data. This call does not stop or interfere with an active live session.
+ *
+ * @param start Start of the query range.
+ * @param end End of the query range. Values in the future are clamped to the current time.
+ */
+export function queryPedometerDataBetweenDates(start: Date, end: Date): Promise<StepCountData> {
+  if (Platform.OS !== "ios" || !StepCounter.queryPedometerDataBetweenDates) {
+    throw new UnavailabilityError(NAME, "queryPedometerDataBetweenDates");
+  }
+  if (start.getTime() > end.getTime()) {
+    return Promise.reject(new Error("start must be before or equal to end"));
+  }
+  const now = Date.now();
+  const endMs = Math.min(end.getTime(), now);
+  return StepCounter.queryPedometerDataBetweenDates(start.getTime(), endMs);
+}
+
+/**
+ * Returns whether this library currently has an active live step-count subscription.
+ *
+ * This reflects the session managed by `startStepCounterUpdate` / `stopStepCounterUpdate`,
+ * not the Android `working` flag from `isStepCountingSupported()`.
+ */
+export function isSensorWorking(): boolean {
+  return _activeSubscription !== null;
+}
+
+/**
+ * Subscribe to native step counter errors (`StepCounter.errorOccurred`).
+ */
+export function addStepCounterErrorListener(
+  callback: (error: StepCounterError) => void
+): EventSubscription {
+  return StepEventEmitter.addListener(errorEventName, (payload) =>
+    callback(normalizeStepCounterError(payload))
+  );
+}
+
+/**
+ * Subscribe to native sensor capability metadata (`StepCounter.stepsSensorInfo`).
+ *
+ * Emitted from `isStepCountingSupported()` on iOS and when the Android sensor service starts.
+ */
+export function addStepsSensorInfoListener(
+  callback: (info: StepsSensorInfo) => void
+): EventSubscription {
+  return StepEventEmitter.addListener(sensorInfoEventName, (payload) =>
+    callback(payload as StepsSensorInfo)
+  );
+}
+
+/**
+ * Subscribe to motion/step detection signals (`StepCounter.stepDetected`).
+ */
+export function addStepDetectedListener(
+  callback: (detected: boolean) => void
+): EventSubscription {
+  return StepEventEmitter.addListener(stepDetectedEventName, (payload) =>
+    callback(Boolean(payload))
+  );
 }
 
 /**
@@ -255,4 +346,16 @@ export function stopStepCounterUpdate(): void {
   StepCounter.stopStepCounterUpdate();
 }
 
-export { NAME, VERSION, type CounterType, type StepCountData };
+export {
+  errorEventName,
+  eventName,
+  NAME,
+  sensorInfoEventName,
+  stepDetectedEventName,
+  VERSION,
+  type CounterType,
+  type StepCountData,
+  type StepCountingSupportResult,
+  type StepCounterError,
+  type StepsSensorInfo,
+};

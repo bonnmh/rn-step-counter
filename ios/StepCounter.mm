@@ -69,16 +69,26 @@ RCT_EXPORT_METHOD(isStepCountingSupported:(RCTPromiseResolveBlock)resolve
                      body:[self dictionaryAboutSensorInfo]];
 }
 
-RCT_EXPORT_METHOD(queryStepCounterDataBetweenDates:(NSDate *)startDate
-                  endDate:(NSDate *)endDate
-                  handler:(RCTResponseSenderBlock)handler) {
-  [self.pedometer queryPedometerDataFromDate:startDate
-                                      toDate:endDate
+RCT_EXPORT_METHOD(queryPedometerDataBetweenDates:(double)startDate
+                  endDate:(double)endDate
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+  NSDate *start = [self dateFromTimestamp:startDate];
+  NSDate *end = [self dateFromTimestamp:endDate];
+
+  if ([start compare:end] == NSOrderedDescending) {
+    reject(@"INVALID_RANGE", @"startDate must be before or equal to endDate", nil);
+    return;
+  }
+
+  [self.pedometer queryPedometerDataFromDate:start
+                                      toDate:end
                                  withHandler:^(CMPedometerData *pedometerData, NSError *error) {
-    handler(@[
-      error.description ?: [NSNull null],
-      [self dictionaryFromPedometerData:pedometerData]
-    ]);
+    if (error) {
+      reject(@"QUERY_FAILED", error.localizedDescription, error);
+      return;
+    }
+    resolve([self dictionaryFromPedometerData:pedometerData]);
   }];
 }
 
@@ -188,6 +198,14 @@ RCT_EXPORT_METHOD(startStepsDetection) {
 
 #pragma mark - Sensor info / mapping
 
+- (NSDate *)dateFromTimestamp:(double)timestamp {
+  double seconds = (timestamp > 1e12) ? (timestamp / 1000.0) : timestamp;
+  if (seconds <= 0) {
+    return [NSDate date];
+  }
+  return [NSDate dateWithTimeIntervalSince1970:seconds];
+}
+
 - (NSDictionary *)dictionaryAboutSensorInfo {
   return @{
     @"name": @"CMPedometer",
@@ -215,6 +233,8 @@ RCT_EXPORT_METHOD(startStepsDetection) {
 
   NSNumber *startDate = @((long long)(data.startDate.timeIntervalSince1970 * 1000.0));
   NSNumber *endDate = @((long long)(data.endDate.timeIntervalSince1970 * 1000.0));
+  NSInteger steps = data.numberOfSteps.integerValue;
+  NSNumber *calories = @(steps * 0.045);
 
   return @{
     @"counterType": @"CMPedometer",
@@ -224,6 +244,7 @@ RCT_EXPORT_METHOD(startStepsDetection) {
     @"distance": data.distance ?: [NSNull null],
     @"floorsAscended": data.floorsAscended ?: [NSNull null],
     @"floorsDescended": data.floorsDescended ?: [NSNull null],
+    @"calories": calories,
   };
 }
 

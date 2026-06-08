@@ -10,9 +10,13 @@ import {
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import {
+  addStepCounterErrorListener,
+  addStepsSensorInfoListener,
   createStepCountFilter,
+  isSensorWorking,
   isStepCountingSupported,
   parseStepData,
+  queryPedometerDataBetweenDates,
   startStepCounterUpdate,
   stopStepCounterUpdate,
   type StepCountData,
@@ -34,6 +38,12 @@ function newSessionId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function startOfToday(): Date {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return today;
+}
+
 export default function App(): React.JSX.Element {
   const { width, height } = useWindowDimensions();
   const [loaded, setLoaded] = React.useState(false);
@@ -42,6 +52,7 @@ export default function App(): React.JSX.Element {
 
   const [sessionId, setSessionId] = React.useState<string>(() => newSessionId());
   const [stepData, setStepData] = React.useState<StepCountData>(initialState);
+  const [todaySteps, setTodaySteps] = React.useState<number | null>(null);
   const [calories, setCalories] = React.useState<string>("");
 
   const [logs, setLogs] = React.useState<LogLine[]>([]);
@@ -201,13 +212,48 @@ export default function App(): React.JSX.Element {
       appendLog("isStepCountingSupported", result);
     });
 
+    const errorSubscription = addStepCounterErrorListener((error) => {
+      appendLog("errorOccurred", error);
+    });
+    const sensorInfoSubscription = addStepsSensorInfoListener((info) => {
+      appendLog("stepsSensorInfo", info);
+    });
+
     return () => {
       cancelled = true;
+      errorSubscription.remove();
+      sensorInfoSubscription.remove();
       stopStepCounter();
     };
     // run once
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  React.useEffect(() => {
+    if (Platform.OS !== "ios" || !supported || !granted) {
+      return;
+    }
+
+    let cancelled = false;
+    queryPedometerDataBetweenDates(startOfToday(), new Date())
+      .then((data) => {
+        if (cancelled) return;
+        setTodaySteps(data.steps);
+        appendLog("queryPedometerDataBetweenDates", {
+          steps: data.steps,
+          startDate: data.startDate,
+          endDate: data.endDate,
+        });
+      })
+      .catch((error: Error) => {
+        if (cancelled) return;
+        appendLog("queryPedometerDataBetweenDates", { error: error.message });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appendLog, granted, supported]);
 
   React.useEffect(() => {
     appendLog("capabilities", { supported, granted });
@@ -234,6 +280,8 @@ export default function App(): React.JSX.Element {
             <View style={[styles.statusDot, loaded ? styles.dotActive : styles.dotInactive]} />
             <Text style={styles.statusText}>
               {loaded && startedAtLabel ? `Active · ${startedAtLabel}` : "Stopped"}
+              {isSensorWorking() ? " · live" : " · idle"}
+              {todaySteps != null ? ` · today ${todaySteps}` : ""}
             </Text>
           </View>
 

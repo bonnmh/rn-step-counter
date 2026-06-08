@@ -1,13 +1,20 @@
-import { TurboModuleRegistry } from "react-native";
+import { Platform, TurboModuleRegistry } from "react-native";
 
 // Static imports work for pure functions — the native module is not invoked at call time.
-import { createStepCountFilter, parseStepData, NAME, VERSION, type StepCountData } from "../index";
-import { eventName } from "../NativeStepCounter";
+import {
+  createStepCountFilter,
+  parseStepData,
+  NAME,
+  VERSION,
+  type StepCountData,
+} from "../index";
+import { errorEventName, eventName, sensorInfoEventName, stepDetectedEventName } from "../NativeStepCounter";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 type NativeMock = {
   isStepCountingSupported: jest.Mock;
+  queryPedometerDataBetweenDates: jest.Mock | undefined;
   startStepCounterUpdate: jest.Mock | undefined;
   stopStepCounterUpdate: jest.Mock;
   addListener: jest.Mock;
@@ -18,6 +25,13 @@ type NativeMock = {
 function makeNativeMock(overrides: Partial<NativeMock> = {}): NativeMock {
   return {
     isStepCountingSupported: jest.fn().mockResolvedValue({ supported: true, granted: true }),
+    queryPedometerDataBetweenDates: jest.fn().mockResolvedValue({
+      counterType: "CMPedometer",
+      steps: 1234,
+      startDate: 1700000000000,
+      endDate: 1700003600000,
+      distance: 900,
+    }),
     startStepCounterUpdate: jest.fn(),
     stopStepCounterUpdate: jest.fn(),
     addListener: jest.fn(),
@@ -55,6 +69,12 @@ describe("exported constants", () => {
 
   it('eventName is "StepCounter.stepCounterUpdate"', () => {
     expect(eventName).toBe("StepCounter.stepCounterUpdate");
+  });
+
+  it("exports auxiliary event name constants", () => {
+    expect(errorEventName).toBe("StepCounter.errorOccurred");
+    expect(sensorInfoEventName).toBe("StepCounter.stepsSensorInfo");
+    expect(stepDetectedEventName).toBe("StepCounter.stepDetected");
   });
 });
 
@@ -221,5 +241,112 @@ describe("stopStepCounterUpdate", () => {
 
     expect(() => stopStepCounterUpdate()).not.toThrow();
     expect(nativeMock.stopStepCounterUpdate).toHaveBeenCalled();
+  });
+});
+
+// ─── queryPedometerDataBetweenDates ──────────────────────────────────────────
+
+describe("queryPedometerDataBetweenDates", () => {
+  const originalPlatformOS = Platform.OS;
+
+  afterEach(() => {
+    Object.defineProperty(Platform, "OS", { configurable: true, value: originalPlatformOS });
+    jest.restoreAllMocks();
+  });
+
+  it("forwards millisecond timestamps to native on iOS", async () => {
+    Object.defineProperty(Platform, "OS", { configurable: true, value: "ios" });
+    const nativeMock = makeNativeMock();
+    const { queryPedometerDataBetweenDates: query } = loadModule(nativeMock);
+    const start = new Date("2024-01-01T00:00:00.000Z");
+    const end = new Date("2024-01-01T12:00:00.000Z");
+
+    await query(start, end);
+
+    expect(nativeMock.queryPedometerDataBetweenDates).toHaveBeenCalledWith(
+      start.getTime(),
+      end.getTime()
+    );
+  });
+
+  it("clamps end dates in the future to now", async () => {
+    Object.defineProperty(Platform, "OS", { configurable: true, value: "ios" });
+    const nowSpy = jest.spyOn(Date, "now").mockReturnValue(1700003600000);
+    const nativeMock = makeNativeMock();
+    const { queryPedometerDataBetweenDates: query } = loadModule(nativeMock);
+    const start = new Date(1700000000000);
+    const end = new Date(1700007200000);
+
+    await query(start, end);
+
+    expect(nativeMock.queryPedometerDataBetweenDates).toHaveBeenCalledWith(
+      start.getTime(),
+      1700003600000
+    );
+    nowSpy.mockRestore();
+  });
+
+  it("throws an UnavailabilityError on Android", () => {
+    Object.defineProperty(Platform, "OS", { configurable: true, value: "android" });
+    const { queryPedometerDataBetweenDates: query } = loadModule(makeNativeMock());
+
+    expect(() => query(new Date(), new Date())).toThrow(
+      expect.objectContaining({ code: "ERR_UNAVAILABLE" })
+    );
+  });
+
+  it("throws an UnavailabilityError when the native method is absent", () => {
+    Object.defineProperty(Platform, "OS", { configurable: true, value: "ios" });
+    const nativeMock = makeNativeMock({ queryPedometerDataBetweenDates: undefined });
+    const { queryPedometerDataBetweenDates: query } = loadModule(nativeMock);
+
+    expect(() => query(new Date(), new Date())).toThrow(
+      expect.objectContaining({ code: "ERR_UNAVAILABLE" })
+    );
+  });
+
+  it("rejects when start is after end", async () => {
+    Object.defineProperty(Platform, "OS", { configurable: true, value: "ios" });
+    const { queryPedometerDataBetweenDates: query } = loadModule(makeNativeMock());
+
+    await expect(
+      query(new Date("2024-01-02T00:00:00.000Z"), new Date("2024-01-01T00:00:00.000Z"))
+    ).rejects.toThrow("start must be before or equal to end");
+  });
+});
+
+// ─── isSensorWorking ─────────────────────────────────────────────────────────
+
+describe("isSensorWorking", () => {
+  it("is false before starting and true while a session is active", () => {
+    const { isSensorWorking: isWorking, startStepCounterUpdate, stopStepCounterUpdate } =
+      loadModule(makeNativeMock());
+
+    expect(isWorking()).toBe(false);
+    startStepCounterUpdate(new Date(), jest.fn());
+    expect(isWorking()).toBe(true);
+    stopStepCounterUpdate();
+    expect(isWorking()).toBe(false);
+  });
+});
+
+// ─── event listener helpers ──────────────────────────────────────────────────
+
+describe("event listener helpers", () => {
+  it("register native listeners for error, sensor info, and step detected events", () => {
+    const nativeMock = makeNativeMock();
+    const {
+      addStepCounterErrorListener,
+      addStepsSensorInfoListener,
+      addStepDetectedListener,
+    } = loadModule(nativeMock);
+
+    addStepCounterErrorListener(jest.fn());
+    addStepsSensorInfoListener(jest.fn());
+    addStepDetectedListener(jest.fn());
+
+    expect(nativeMock.addListener).toHaveBeenCalledWith(errorEventName);
+    expect(nativeMock.addListener).toHaveBeenCalledWith(sensorInfoEventName);
+    expect(nativeMock.addListener).toHaveBeenCalledWith(stepDetectedEventName);
   });
 });

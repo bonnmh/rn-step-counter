@@ -68,20 +68,22 @@ Config in `.release-it.json`. Uses `@release-it/conventional-changelog` with con
 
 ### JavaScript Layer (`src/`)
 
-- **`src/NativeStepCounter.ts`** — TurboModule spec definition. Defines the `Spec` interface registered as `"StepCounter"` via `TurboModuleRegistry.getEnforcing`. Exports `StepCountData` type and constants (`NAME`, `VERSION`, `eventName`).
+- **`src/NativeStepCounter.ts`** — TurboModule spec definition. Defines the `Spec` interface registered as `"StepCounter"` via `TurboModuleRegistry.getEnforcing`. Exports `StepCountData` type and constants (`NAME`, `VERSION`, `eventName`, `errorEventName`, `sensorInfoEventName`, `stepDetectedEventName`).
 - **`src/index.tsx`** — Public API. Wraps the native module with a `NativeEventEmitter`, exposes:
-  - `isStepCountingSupported()` → Promise with `{ supported, granted }`
+  - `isStepCountingSupported()` → Promise with `{ supported, granted, working? }`
+  - `queryPedometerDataBetweenDates(start, end)` → iOS-only range query
   - `startStepCounterUpdate(start, callback)` → returns `EventSubscription`
-  - `stopStepCounterUpdate()` → removes all listeners and stops native updates
+  - `stopStepCounterUpdate()` → removes the library subscription and stops native updates
+  - `addStepCounterErrorListener`, `addStepsSensorInfoListener`, `addStepDetectedListener`
+  - `isSensorWorking()` — whether the library has an active live subscription
   - `parseStepData(data)` → transforms raw `StepCountData` into human-readable `ParsedStepCountData`
-  - `isSensorWorking` — boolean based on active listener count
 - **`src/packageMeta.ts`** — Package name and repository URL used in linking error messages.
 
 ### Native Layer
 
 **iOS (`ios/`)**:
 
-- `StepCounter.h / .mm` — Main Objective-C module. Implements `isStepCountingSupported`, `startStepCounterUpdate`, `stopStepCounterUpdate`. Uses `CMPedometer` for step data and `SOMotionDetecter` for motion detection. Emits `StepCounter.stepCounterUpdate` events.
+- `StepCounter.h / .mm` — Main Objective-C module. Implements `isStepCountingSupported`, `queryPedometerDataBetweenDates`, `startStepCounterUpdate`, `stopStepCounterUpdate`. Uses `CMPedometer` for step data and `SOMotionDetecter` for motion detection. Emits `StepCounter.stepCounterUpdate`, `StepCounter.errorOccurred`, and `StepCounter.stepsSensorInfo` events.
 - `SOMotionDetecter.h / .m` — Motion detection helper used by the iOS module.
 - New Architecture support via `#ifdef RCT_NEW_ARCH_ENABLED` guard with `NativeStepCounterSpecJSI`.
 
