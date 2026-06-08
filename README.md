@@ -1,100 +1,89 @@
-# React-Native Step Counter Library
+# @blife/rn-step-counter
 
 [![npm version](https://img.shields.io/npm/v/@blife/rn-step-counter.svg)](https://www.npmjs.com/package/@blife/rn-step-counter)
+[![npm downloads](https://img.shields.io/npm/dm/@blife/rn-step-counter.svg)](https://www.npmjs.com/package/@blife/rn-step-counter)
+[![license](https://img.shields.io/github/license/bonnmh/rn-step-counter)](https://github.com/bonnmh/rn-step-counter/blob/main/LICENSE)
 
-한국어 사용자는 [Korean version.](README.kr.md)를 참조하십시오.
+A React Native TurboModule for live step counting on iOS and Android.
 
-This library provides an interface for tracking the number of steps taken by the user in a React Native app. It uses the Android `StepCounter` sensor, an accelerometer fallback on Android devices without a step counter sensor, and Apple's `Core Motion` framework on iOS.
+- **npm:** [@blife/rn-step-counter](https://www.npmjs.com/package/@blife/rn-step-counter)
+- **Source:** [github.com/bonnmh/rn-step-counter](https://github.com/bonnmh/rn-step-counter)
 
-## Installation
+## Features
 
-```shell
-npm install @blife/rn-step-counter
-```
-
-```shell
-bun add @blife/rn-step-counter
-```
-
-Native modules will automatically connect after React Native 0.60 version. So you don't need to link the native modules manually.
+- **iOS** — Core Motion (`CMPedometer`) with floors ascended/descended when available
+- **Android** — Hardware step counter (`TYPE_STEP_COUNTER`) with accelerometer fallback
+- **New Architecture** — TurboModule / Fabric (required)
+- **Live updates** — Event-based API with start/stop lifecycle
+- **Optional filtering** — `createStepCountFilter()` reduces false positives from rapid motion
+- **Utilities** — `parseStepData()` for display-friendly formatting
 
 ## Requirements
 
-- React Native `>=0.71.0`
-- React Native CLI apps. Expo Go is not supported because this package includes native code.
+| | |
+|---|---|
+| React Native | `>= 0.71.0` |
+| Architecture | New Architecture (TurboModules) |
+| Expo | Not supported in Expo Go (native module) |
+| Autolinking | React Native 0.60+ |
 
-### ANDROID
+## Installation
 
-Add the motion permission and sensor feature declarations if your app does not already include them.
+```bash
+npm install @blife/rn-step-counter
+```
+
+```bash
+yarn add @blife/rn-step-counter
+# or
+pnpm add @blife/rn-step-counter
+# or
+bun add @blife/rn-step-counter
+```
+
+Rebuild the native app after installing:
+
+```bash
+# iOS
+cd ios && pod install && cd ..
+
+# Android / iOS
+npx react-native run-android
+npx react-native run-ios
+```
+
+## Platform setup
+
+### Android
+
+Add permissions and sensor features to your app manifest if they are not already present:
 
 ```xml
-<!--  android/src/main/AndroidManifest.xml-->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.stepcounter">
-  <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
-  <uses-permission android:name="android.permission.BODY_SENSORS_BACKGROUND" />
+<uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
 
-  <uses-feature
-    android:name="android.hardware.sensor.stepcounter"
-    android:required="false" />
-  <uses-feature
-    android:name="android.hardware.sensor.accelerometer"
-    android:required="true" />
-</manifest>
+<uses-feature
+  android:name="android.hardware.sensor.stepcounter"
+  android:required="false" />
+<uses-feature
+  android:name="android.hardware.sensor.accelerometer"
+  android:required="true" />
 ```
+
+Request runtime permission before starting updates. The library reports permission status via `isStepCountingSupported()`.
 
 ### iOS
 
-Add `NSMotionUsageDescription` to your app's `Info.plist`.
+Add a motion usage description to your app's `Info.plist`:
 
-```xml plist
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN">
-<plist version="1.0">
-  ...
-  <key>NSMotionUsageDescription</key>
-  <string>We want to access your motion data to count your steps.</string>
-  ...
-</plist>
+```xml
+<key>NSMotionUsageDescription</key>
+<string>This app uses motion data to count your steps.</string>
 ```
 
-## Interface
+## Quick start
 
-- `isStepCountingSupported()`: `Promise<{ supported: boolean; granted: boolean }>`: method to check if the device has a feature related step counter or accelerometer.
-  - One key for the response object is `granted`, whether the app user has granted this feature permission, and `supported` is whether the device supports this feature.
-  - Android can fall back to accelerometer-based counting when the hardware step counter is unavailable. You should still request and respect the platform motion/activity permission before starting updates.
-
-- `startStepCounterUpdate(start: Date, callBack: StepCountUpdateCallback)`: `EventSubscription`:
-  - If the pedometer sensor is available and supported on the device, register it with the listener in the sensor manager, and return the step count event listener.
-  - If the pedometer sensor is not supported by the device or is not available, register the accelerometer sensor with the listener, generate an accel event through a vector algorithm filter and receive it to the app.
-
-- `stopStepCounterUpdate(): void`:
-  - Removes the subscription registered by `startStepCounterUpdate` and stops the native sensor session.
-
-- `createStepCountFilter(options?: StepCountFilterOptions)`: `(data: StepCountData) => StepCountData | null`:
-  - Creates a stateful live-update filter for sensor false positives such as hand rotation.
-  - The filter drops bursts that imply a cadence faster than `minimumStepIntervalMs` and rebases later cumulative values so ignored steps do not come back on the next accepted event.
-  - Native hardware/OS pedometers can still report false positives before the package receives the event. Use this helper when your app needs stricter live-session counts than the raw sensor stream.
-
-- `StepCountData`:
-  - **Common Interface**
-    - `steps`: This is a number property that indicates the number of steps taken by the user during the specified time period.
-    - `startDate`: This is a number property that indicates the start date of the data in Unix timestamp format, measured in milliseconds.
-    - `endDate`: This is a number property that indicates the end date of the data in Unix timestamp format, measured in milliseconds.
-    - `distance`: This is a number property that indicates the distance in meters that the user has walked or run during the specified time period.
-    - `counterType`: (`CounterType`) The name of the sensor used to count the number of steps. One of `"CMPedometer"` (iOS), `"STEP_COUNTER"` (Android hardware sensor), or `"ACCELEROMETER"` (Android fallback).
-
-  - **iOS Only**
-    - `floorsAscended`: This is a number property that indicates the number of floors the user has ascended during the specified time period. It can be nil if the device does not support this feature.
-    - `floorsDescended`: This is a number property that indicates the number of floors the user has descended during the specified time period. It can be nil if the device does not support this feature.
-
-## Usage
-
-To use the Step Counter Library in your React Native app, follow these steps:
-
-Import the library into your React Native app.
-
-```typescript
-import React, { useEffect, useState } from "react";
+```tsx
+import { useEffect, useState } from "react";
 import {
   createStepCountFilter,
   isStepCountingSupported,
@@ -102,59 +91,101 @@ import {
   startStepCounterUpdate,
   stopStepCounterUpdate,
 } from "@blife/rn-step-counter";
-```
 
-Use the `isStepCountingSupported` method to check if the device has a step counter or accelerometer sensor.
+export function StepCounterScreen() {
+  const [steps, setSteps] = useState(0);
 
-```typescript
-const [supported, setSupported] = useState(false);
-const [granted, setGranted] = useState(false);
+  useEffect(() => {
+    let active = true;
 
-async function askPermission() {
-  isStepCountingSupported().then((result) => {
-    console.debug("🚀 - isStepCountingSupported", result);
-    setGranted(result.granted === true);
-    setSupported(result.supported === true);
-  });
+    (async () => {
+      const { supported, granted } = await isStepCountingSupported();
+      if (!active || !supported || !granted) {
+        return;
+      }
+
+      const filter = createStepCountFilter();
+
+      startStepCounterUpdate(new Date(), (data) => {
+        const filtered = filter(data);
+        if (!filtered) {
+          return;
+        }
+        setSteps(filtered.steps);
+      });
+    })();
+
+    return () => {
+      active = false;
+      stopStepCounterUpdate();
+    };
+  }, []);
+
+  return null; // render your UI, e.g. parseStepData(...)
 }
 ```
 
-Call the `startStepCounterUpdate` method to start the step counter service.
+See the full example app: [`example/src/App.tsx`](./example/src/App.tsx).
 
-```typescript
-const [steps, setSteps] = useState(0);
+## API
 
-async function startStepCounter() {
-  const filterStepCountData = createStepCountFilter();
+### `isStepCountingSupported()`
 
-  startStepCounterUpdate(new Date(), (data) => {
-    const filteredData = filterStepCountData(data);
-    if (!filteredData) {
-      return;
-    }
+Returns `Promise<{ supported: boolean; granted: boolean }>`.
 
-    console.debug(parseStepData(filteredData));
-    setSteps(filteredData.steps);
-  });
-}
+- `supported` — device can count steps (hardware sensor or fallback)
+- `granted` — required motion/activity permission has been granted
+
+### `startStepCounterUpdate(start, callback)`
+
+Starts native step updates from `start` (JavaScript `Date`) and invokes `callback` with `StepCountData` on each event.
+
+Returns an `EventSubscription`. Call `stopStepCounterUpdate()` to stop.
+
+### `stopStepCounterUpdate()`
+
+Stops the active native session and removes the library's event subscription.
+
+### `createStepCountFilter(options?)`
+
+Returns a stateful filter function. Drops bursts that exceed the configured cadence (default: 250 ms per step) and rebases cumulative counts so ignored steps are not applied later.
+
+### `parseStepData(data)`
+
+Formats raw `StepCountData` for display (steps, distance, time range, estimated calories, daily goal progress).
+
+### `StepCountData`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `steps` | `number` | Step count for the interval |
+| `startDate` | `number` | Interval start (Unix ms) |
+| `endDate` | `number` | Interval end (Unix ms) |
+| `distance` | `number` | Distance in meters |
+| `counterType` | `CounterType` | `"CMPedometer"` · `"STEP_COUNTER"` · `"ACCELEROMETER"` |
+| `floorsAscended` | `number?` | iOS only |
+| `floorsDescended` | `number?` | iOS only |
+
+## Development
+
+```bash
+bun install
+bun run prepare
+bun run test
+bun run example:start   # Metro
+bun run example:ios     # or example:android
 ```
 
-Here's an example of a complete React component that uses the `NativeStepCounter`.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full workflow.
 
-Link to Example Application: [here](https://github.com/bonnmh/rn-step-counter/blob/main/example/src/App.tsx)
+## Changelog
 
-## Change Log
-
-See the [`Release Notes`](CHANGELOG.md) for a list of changes.
-
-## Contributing
-
-See the [`Contributing Guide`](CONTRIBUTING.md) to learn how to contribute to the repository and the development workflow.
+See [CHANGELOG.md](./CHANGELOG.md).
 
 ## License
 
-MIT
+[MIT](./LICENSE)
 
 ---
 
-Made with [create-react-native-library](https://github.com/callstack/react-native-builder-bob)
+Korean documentation: [README.kr.md](./README.kr.md)

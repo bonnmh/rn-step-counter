@@ -1,5 +1,9 @@
 # React-Native Step Counter Library
 
+[![npm version](https://img.shields.io/npm/v/@blife/rn-step-counter.svg)](https://www.npmjs.com/package/@blife/rn-step-counter)
+
+**npm:** [@blife/rn-step-counter](https://www.npmjs.com/package/@blife/rn-step-counter) · **GitHub:** [bonnmh/rn-step-counter](https://github.com/bonnmh/rn-step-counter)
+
 English-speaking developers, please return to the repository main page or click [the following link](README.md)
 
 사용자가 일정 시간 걸은 걸음 수를 계산하기 위한 리액트 네이티브 모듈입니다. 이 패키지는 Android의 `StepCounter` 센서, Android 기기에서 하드웨어 스텝 카운터를 사용할 수 없을 때의 가속도계 기반 폴백, iOS의 `Core Motion` 프레임워크를 사용합니다.
@@ -9,6 +13,8 @@ English-speaking developers, please return to the repository main page or click 
 ```shell
 npm install @blife/rn-step-counter
 ```
+
+npm 패키지: https://www.npmjs.com/package/@blife/rn-step-counter
 
 ```shell
 yarn add @blife/rn-step-counter
