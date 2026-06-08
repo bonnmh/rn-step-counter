@@ -1,0 +1,53 @@
+# Local/dev directories
+node_modules/
+example/
+documents/
+.github/
+.trunk/
+.vscode/
+.serena/
+.claude/
+.cspell/
+
+# Build output directories
+android/build/
+ios/build/
+lib/typescript/example/
+
+# Android local environment directories/files
+android/.gradle/
+android/.idea/
+android/gradle/
+android/local.properties
+android/gradlew
+android/gradlew.bat
+
+# iOS local environment directories
+example/ios/DerivedData/
+example/ios/Pods/
+example/ios/build/
+
+# Misc local directories
+example/android/app/build/
+example/android/build/
+example/android/.gradle/
+example/android/.kotlin/
+example/android/.idea/
+example/vendor/
+
+# Test and hidden files
+**/__tests__/
+**/__fixtures__/
+**/__mocks__/
+**/.*
+
+# Generated reports and binaries
+**/merger.xml
+**/manifest-merger-blame-debug-report.txt
+**/google-services.json
+**/GoogleService-Info.plist
+**/*.ipa
+**/*.aab
+**/*.apk
+**/*.iml
+**/*.log

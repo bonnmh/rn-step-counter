@@ -1,0 +1,15 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Feature Request
+    url: https://github.com/blife/rn-step-counter/discussions/new?category=ideas
+    about: Request a new feature.
+  - name: Discussions
+    url: https://github.com/blife/rn-step-counter/discussions
+    about: Ask questions and discuss ideas.
+contact_links:
+  - name: Feature Request
+    url: https://github.com/blife/rn-step-counter/discussions/new?category=ideas
+    about: Request a new feature.
+  - name: Discussions
+    url: https://github.com/blife/rn-step-counter/discussions
+    about: Ask questions and discuss ideas.

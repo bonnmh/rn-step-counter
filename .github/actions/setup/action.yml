@@ -1,0 +1,41 @@
+name: Setup
+description: Setup Node.js, Bun, and install dependencies
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      with:
+        node-version-file: .nvmrc
+
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@735729ea6590513d825e79c0fd244a437e524134 # v2.0.2
+      with:
+        bun-version-file: .bun-version
+
+    - name: Restore dependencies
+      id: bun-cache
+      uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+      with:
+        path: |
+          **/node_modules
+          ~/.bun/install/cache
+        key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}-${{ hashFiles('**/package.json', '!node_modules/**') }}
+        restore-keys: |
+          ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          ${{ runner.os }}-bun-
+
+    - name: Install dependencies
+      if: steps.bun-cache.outputs.cache-hit != 'true'
+      run: bun install --frozen-lockfile
+      shell: bash
+
+    - name: Cache dependencies
+      if: steps.bun-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+      with:
+        path: |
+          **/node_modules
+          ~/.bun/install/cache
+        key: ${{ steps.bun-cache.outputs.cache-primary-key }}

@@ -1,0 +1,3 @@
+[install]
+# Match Yarn's nodeLinker: node-modules — required for Jest + React Native tooling
+linker = "hoisted"
