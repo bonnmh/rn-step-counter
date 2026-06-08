@@ -1,65 +1,56 @@
-# 안드로이드 기본센서 & 복합센서
+# Android sensors
 
-- [안드로이드 동작 센서](https://developer.android.com/guide/topics/sensors/sensors_motion?hl=ko)
-- [안드로이드 센서 유형](https://source.android.com/docs/core/interaction/sensors/sensor-types?hl=ko)
+Reference notes for the sensor types used by this library.
+
+- [Motion sensors (Android Developers)](https://developer.android.com/guide/topics/sensors/sensors_motion)
+- [Sensor types (AOSP)](https://source.android.com/docs/core/interaction/sensors/sensor-types)
 
 ## TYPE_ACCELEROMETER
 
-SensorEvent.values[0] x축의 가속력\(중력 포함). m/s2
-SensorEvent.values[1] y축의 가속력\(중력 포함). m/s2
-SensorEvent.values[2] z축의 가속력\(중력 포함). m/s2
+| Index | Description |
+|-------|-------------|
+| `values[0]` | Acceleration on the X axis, including gravity (m/s²) |
+| `values[1]` | Acceleration on the Y axis, including gravity (m/s²) |
+| `values[2]` | Acceleration on the Z axis, including gravity (m/s²) |
 
-## TYPE_ACCELEROMETER_UNCALIBRATED
-
-SensorEvent.values[0] 편향 보상 없이 X축을 따라 측정한 가속. m/s2
-SensorEvent.values[1] 편향 보상 없이 Y축을 따라 측정한 가속. m/s2
-SensorEvent.values[2] 편향 보상 없이 Z축을 따라 측정한 가속. m/s2
-SensorEvent.values[3] 추정된 편향 보상을 적용하여 X축을 따라 측정한 가속. m/s2
-SensorEvent.values[4] 추정된 편향 보상을 적용하여 Y축을 따라 측정한 가속. m/s2
-SensorEvent.values[5] 추정된 편향 보상을 적용하여 Z축을 따라 측정한 가속. m/s2
-
-## TYPE_GRAVITY
-
-SensorEvent.values[0] x축의 중력. m/s2
-SensorEvent.values[1] y축의 중력. m/s2
-SensorEvent.values[2] z축의 중력. m/s2
-
-## TYPE_GYROSCOPE
-
-SensorEvent.values[0] x축을 중심으로 한 회전 속도. rad/s
-SensorEvent.values[1] y축을 중심으로 한 회전 속도. rad/s
-SensorEvent.values[2] z축을 중심으로 한 회전 속도. rad/s
-
-## TYPE_GYROSCOPE_UNCALIBRATED
-
-SensorEvent.values[0] x축을 중심으로 한 회전 속도\(드리프트 보상 없음). rad/s
-SensorEvent.values[1] y축을 중심으로 한 회전 속도\(드리프트 보상 없음). rad/s
-SensorEvent.values[2] z축을 중심으로 한 회전 속도\(드리프트 보상 없음). rad/s
-SensorEvent.values[3] x축을 중심으로 추정한 드리프트. rad/s
-SensorEvent.values[4] y축을 중심으로 추정한 드리프트. rad/s
-SensorEvent.values[5] z축을 중심으로 추정한 드리프트. rad/s
-
-## TYPE_LINEAR_ACCELERATION
-
-SensorEvent.values[0] x축의 가속력\(중력 제외). m/s2
-SensorEvent.values[1] y축의 가속력\(중력 제외). m/s2
-SensorEvent.values[2] z축의 가속력\(중력 제외). m/s2
-
-## TYPE_ROTATION_VECTOR
-
-SensorEvent.values[0] x축의 회전 벡터 구성요소\(x \* sin\(θ/2)). 단위 없음
-SensorEvent.values[1] y축의 회전 벡터 구성요소\(y \* sin\(θ/2)). 단위 없음
-SensorEvent.values[2] z축의 회전 벡터 구성요소\(z \* sin\(θ/2)). 단위 없음
-SensorEvent.values[3] 회전 벡터의 스칼라 구성요소\(\(cos\(θ/2)). 옵셔널.단위 없음
+Used by the accelerometer fallback when `TYPE_STEP_COUNTER` is unavailable.
 
 ## TYPE_STEP_COUNTER
 
-SensorEvent.values[0] 센서가 활성화되어 있는 동안 마지막 재부팅 이후로 사용자가 걸은 걸음 수. 단위 보
+| Index | Description |
+|-------|-------------|
+| `values[0]` | Steps since last reboot while the sensor was active |
 
-### TYPE_SIGNIFICANT_MOTION
+This is the preferred Android data source. The module converts cumulative counter readings into session step counts.
 
-\(중요하거나 위험할 수 있는 활동 감지) 해당 없음
+## TYPE_STEP_DETECTOR
 
-### TYPE_STEP_DETECTOR
+Not used directly by this library. Step detection is handled in software when falling back to the accelerometer.
 
-해당 없음
+## TYPE_SIGNIFICANT_MOTION
+
+Not used by this library.
+
+## Other sensor types
+
+The sections below are retained as general Android sensor reference material and are not required for integration.
+
+### TYPE_ACCELEROMETER_UNCALIBRATED
+
+Six-axis uncalibrated accelerometer values (m/s²).
+
+### TYPE_GRAVITY
+
+Gravity vector on X, Y, and Z axes (m/s²).
+
+### TYPE_GYROSCOPE / TYPE_GYROSCOPE_UNCALIBRATED
+
+Rotation rate around X, Y, and Z axes (rad/s).
+
+### TYPE_LINEAR_ACCELERATION
+
+Device acceleration with gravity removed (m/s²).
+
+### TYPE_ROTATION_VECTOR
+
+Rotation vector components used for orientation fusion.

@@ -185,7 +185,3 @@ See [CHANGELOG.md](./CHANGELOG.md).
 ## License
 
 [MIT](./LICENSE)
-
----
-
-Korean documentation: [README.kr.md](./README.kr.md)
