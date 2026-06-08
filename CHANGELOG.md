@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.1.1] - 2026-06-08
+
+### Changed
+
+- Republished on npm; identical to 1.1.0 (no API or native changes).
+
 ## [1.1.0] - 2026-06-08
 
 ### Added

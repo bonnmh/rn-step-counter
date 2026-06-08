@@ -1,6 +1,6 @@
 {
   "name": "@blife/rn-step-counter",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "This library provides an interface for tracking the number of steps taken by the user in a React Native app.",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/src/index.d.ts",
