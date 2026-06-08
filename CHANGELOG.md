@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2] - 2026-06-08
+
+### Changed
+
+- Expanded npm keywords for step counter, pedometer, and Core Motion discoverability.
+- README links to npm and GitHub; added community and Stack Overflow templates.
+
 ## [1.0.1] - 2026-06-07
 
 ### Fixed

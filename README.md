@@ -1,6 +1,10 @@
 # React-Native Step Counter Library
 
 [![npm version](https://img.shields.io/npm/v/@blife/rn-step-counter.svg)](https://www.npmjs.com/package/@blife/rn-step-counter)
+[![npm downloads](https://img.shields.io/npm/dm/@blife/rn-step-counter.svg)](https://www.npmjs.com/package/@blife/rn-step-counter)
+[![GitHub license](https://img.shields.io/github/license/bonnmh/rn-step-counter)](https://github.com/bonnmh/rn-step-counter/blob/main/LICENSE)
+
+**npm:** [@blife/rn-step-counter](https://www.npmjs.com/package/@blife/rn-step-counter) · **GitHub:** [bonnmh/rn-step-counter](https://github.com/bonnmh/rn-step-counter)
 
 한국어 사용자는 [Korean version.](README.kr.md)를 참조하십시오.
 
@@ -8,12 +12,20 @@ This library provides an interface for tracking the number of steps taken by the
 
 ## Installation
 
+Install from npm:
+
 ```shell
 npm install @blife/rn-step-counter
 ```
 
+Package page: https://www.npmjs.com/package/@blife/rn-step-counter
+
+Alternatives:
+
 ```shell
 bun add @blife/rn-step-counter
+yarn add @blife/rn-step-counter
+pnpm add @blife/rn-step-counter
 ```
 
 Native modules will automatically connect after React Native 0.60 version. So you don't need to link the native modules manually.
@@ -151,10 +163,33 @@ See the [`Release Notes`](CHANGELOG.md) for a list of changes.
 
 See the [`Contributing Guide`](CONTRIBUTING.md) to learn how to contribute to the repository and the development workflow.
 
+## Support the project
+
+Help others discover this library:
+
+1. **Star the repo:** https://github.com/bonnmh/rn-step-counter
+2. **Install from npm:** `npm install @blife/rn-step-counter`
+3. **Ask or answer on Stack Overflow** with tags `react-native`, `pedometer`, and `step-counter`. Mention the package name `@blife/rn-step-counter`.
+4. **Open a GitHub Discussion** for questions, ideas, or show-and-tell: https://github.com/bonnmh/rn-step-counter/discussions
+
+### Stack Overflow template
+
+```text
+Title: How do I track steps in React Native with @blife/rn-step-counter?
+
+Body:
+I'm using [@blife/rn-step-counter](https://www.npmjs.com/package/@blife/rn-step-counter)
+(React Native TurboModule for iOS Core Motion / Android step counter).
+
+Environment:
+- React Native: ...
+- Platform: iOS / Android
+- New Architecture: enabled
+
+Question:
+...
+```
+
 ## License
 
 MIT
-
----
-
-Made with [create-react-native-library](https://github.com/callstack/react-native-builder-bob)
