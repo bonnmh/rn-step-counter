@@ -49,14 +49,14 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/blife/rn-step-counter.git"
+    "url": "git+https://github.com/bonnmh/rn-step-counter.git"
   },
-  "author": "blife <blife.mobile@gmail.com> (https://github.com/blife)",
+  "author": "blife <blife.mobile@gmail.com> (https://github.com/bonnmh)",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/blife/rn-step-counter/issues"
+    "url": "https://github.com/bonnmh/rn-step-counter/issues"
   },
-  "homepage": "https://github.com/blife/rn-step-counter#readme",
+  "homepage": "https://github.com/bonnmh/rn-step-counter#readme",
   "publishConfig": {
     "registry": "https://registry.npmjs.org/"
   },

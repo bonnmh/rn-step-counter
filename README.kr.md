@@ -140,7 +140,7 @@ async function startStepCounter() {
 
 다음은 `NativeStepCounter`를 사용하는 리액트 네이티브 애플리케이션의 예시입니다.
 
-예제 앱 코드 보기: [링크](https://github.com/blife/rn-step-counter/blob/main/example/src/App.tsx)
+예제 앱 코드 보기: [링크](https://github.com/bonnmh/rn-step-counter/blob/main/example/src/App.tsx)
 
 ## Change Log
 

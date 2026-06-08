@@ -1,5 +1,7 @@
 # React-Native Step Counter Library
 
+[![npm version](https://img.shields.io/npm/v/@blife/rn-step-counter.svg)](https://www.npmjs.com/package/@blife/rn-step-counter)
+
 한국어 사용자는 [Korean version.](README.kr.md)를 참조하십시오.
 
 This library provides an interface for tracking the number of steps taken by the user in a React Native app. It uses the Android `StepCounter` sensor, an accelerometer fallback on Android devices without a step counter sensor, and Apple's `Core Motion` framework on iOS.
@@ -139,7 +141,7 @@ async function startStepCounter() {
 
 Here's an example of a complete React component that uses the `NativeStepCounter`.
 
-Link to Example Application: [here](https://github.com/blife/rn-step-counter/blob/main/example/src/App.tsx)
+Link to Example Application: [here](https://github.com/bonnmh/rn-step-counter/blob/main/example/src/App.tsx)
 
 ## Change Log
 
