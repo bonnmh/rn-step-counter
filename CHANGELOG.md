@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.2.1](https://github.com/bonnmh/rn-step-counter/compare/v1.2.0...v1.2.1) (2026-08-12)
+
+### Features
+
+* ✨ add release workflow and scripts for automated versioning ([88012d8](https://github.com/bonnmh/rn-step-counter/commit/88012d84a88b3b5f169f34e83d09f8872d332fc8))
+
+### Bug Fixes
+
+* ♻️ use correct CMPedometer event update APIs on iOS ([2171f4a](https://github.com/bonnmh/rn-step-counter/commit/2171f4ac4e19330f316b783a85a7587db8355232))
+
 ## [1.2.0] - 2026-06-12
 
 ### Added
