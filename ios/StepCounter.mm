@@ -218,8 +218,8 @@ RCT_EXPORT_METHOD(startStepsDetection) {
   }
 
   if (@available(iOS 10.0, *)) {
-    [self.pedometer stopEventUpdates];
-    [self.pedometer startEventUpdatesWithHandler:^(CMPedometerEvent *event, NSError *error) {
+    [self.pedometer stopPedometerEventUpdates];
+    [self.pedometer startPedometerEventUpdatesWithHandler:^(CMPedometerEvent *event, NSError *error) {
       if (error) {
         [self sendEventWithName:@"StepCounter.errorOccurred" body:error];
         return;
@@ -251,7 +251,7 @@ RCT_EXPORT_METHOD(startStepsDetection) {
 - (void)stopPedometerEventUpdatesIfAvailable {
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 100000
   if (@available(iOS 10.0, *)) {
-    [self.pedometer stopEventUpdates];
+    [self.pedometer stopPedometerEventUpdates];
   }
 #endif
 }
