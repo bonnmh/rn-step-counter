@@ -8,7 +8,13 @@ import {
   VERSION,
   type StepCountData,
 } from "../index";
-import { errorEventName, eventName, sensorInfoEventName, stepDetectedEventName } from "../NativeStepCounter";
+import {
+  errorEventName,
+  eventName,
+  pedometerEventName,
+  sensorInfoEventName,
+  stepDetectedEventName,
+} from "../NativeStepCounter";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -63,8 +69,8 @@ describe("exported constants", () => {
     expect(NAME).toBe("StepCounter");
   });
 
-  it('VERSION is "0.3.1"', () => {
-    expect(VERSION).toBe("0.3.1");
+  it('VERSION is "1.2.0"', () => {
+    expect(VERSION).toBe("1.2.0");
   });
 
   it('eventName is "StepCounter.stepCounterUpdate"', () => {
@@ -75,6 +81,7 @@ describe("exported constants", () => {
     expect(errorEventName).toBe("StepCounter.errorOccurred");
     expect(sensorInfoEventName).toBe("StepCounter.stepsSensorInfo");
     expect(stepDetectedEventName).toBe("StepCounter.stepDetected");
+    expect(pedometerEventName).toBe("StepCounter.pedometerEvent");
   });
 });
 
@@ -333,20 +340,23 @@ describe("isSensorWorking", () => {
 // ─── event listener helpers ──────────────────────────────────────────────────
 
 describe("event listener helpers", () => {
-  it("register native listeners for error, sensor info, and step detected events", () => {
+  it("register native listeners for error, sensor info, step detected, and pedometer events", () => {
     const nativeMock = makeNativeMock();
     const {
       addStepCounterErrorListener,
       addStepsSensorInfoListener,
       addStepDetectedListener,
+      addPedometerEventListener,
     } = loadModule(nativeMock);
 
     addStepCounterErrorListener(jest.fn());
     addStepsSensorInfoListener(jest.fn());
     addStepDetectedListener(jest.fn());
+    addPedometerEventListener(jest.fn());
 
     expect(nativeMock.addListener).toHaveBeenCalledWith(errorEventName);
     expect(nativeMock.addListener).toHaveBeenCalledWith(sensorInfoEventName);
     expect(nativeMock.addListener).toHaveBeenCalledWith(stepDetectedEventName);
+    expect(nativeMock.addListener).toHaveBeenCalledWith(pedometerEventName);
   });
 });

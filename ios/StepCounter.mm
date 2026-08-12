@@ -32,6 +32,7 @@ RCT_EXPORT_MODULE();
   return @[
     @"StepCounter.stepCounterUpdate",
     @"StepCounter.stepDetected",
+    @"StepCounter.pedometerEvent",
     @"StepCounter.errorOccurred",
     @"StepCounter.stepsSensorInfo"
   ];
@@ -171,10 +172,13 @@ RCT_EXPORT_METHOD(startStepCounterUpdate:(double)from) {
       [self sendEventWithName:@"StepCounter.stepCounterUpdate" body:body];
     }
   }];
+
+  [self startPedometerEventUpdatesIfAvailable];
 }
 
 RCT_EXPORT_METHOD(stopStepCounterUpdate) {
   [self.pedometer stopPedometerUpdates];
+  [self stopPedometerEventUpdatesIfAvailable];
   [[SOMotionDetecter sharedInstance] stopDetection];
 
   dispatch_sync(_stateQueue, ^{
@@ -196,6 +200,62 @@ RCT_EXPORT_METHOD(startStepsDetection) {
   }];
 }
 
+#pragma mark - Pedometer events
+
+- (BOOL)isPedometerEventTrackingSupported {
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 100000
+  if (@available(iOS 10.0, *)) {
+    return [CMPedometer isPedometerEventTrackingAvailable];
+  }
+#endif
+  return NO;
+}
+
+- (void)startPedometerEventUpdatesIfAvailable {
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 100000
+  if (![self isPedometerEventTrackingSupported]) {
+    return;
+  }
+
+  if (@available(iOS 10.0, *)) {
+    [self.pedometer stopEventUpdates];
+    [self.pedometer startEventUpdatesWithHandler:^(CMPedometerEvent *event, NSError *error) {
+      if (error) {
+        [self sendEventWithName:@"StepCounter.errorOccurred" body:error];
+        return;
+      }
+      if (!event) {
+        return;
+      }
+
+      NSString *type = nil;
+      if (event.type == CMPedometerEventTypePause) {
+        type = @"pause";
+      } else if (event.type == CMPedometerEventTypeResume) {
+        type = @"resume";
+      }
+      if (!type) {
+        return;
+      }
+
+      [self sendEventWithName:@"StepCounter.pedometerEvent"
+                         body:@{
+                           @"type": type,
+                           @"date": @((long long)(event.date.timeIntervalSince1970 * 1000.0)),
+                         }];
+    }];
+  }
+#endif
+}
+
+- (void)stopPedometerEventUpdatesIfAvailable {
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 100000
+  if (@available(iOS 10.0, *)) {
+    [self.pedometer stopEventUpdates];
+  }
+#endif
+}
+
 #pragma mark - Sensor info / mapping
 
 - (NSDate *)dateFromTimestamp:(double)timestamp {
@@ -215,6 +275,7 @@ RCT_EXPORT_METHOD(startStepsDetection) {
     @"cadence": @([CMPedometer isCadenceAvailable]),
     @"distance": @([CMPedometer isDistanceAvailable]),
     @"floorCounting": @([CMPedometer isFloorCountingAvailable]),
+    @"pedometerEventTracking": @([self isPedometerEventTrackingSupported]),
   };
 }
 
@@ -236,7 +297,7 @@ RCT_EXPORT_METHOD(startStepsDetection) {
   NSInteger steps = data.numberOfSteps.integerValue;
   NSNumber *calories = @(steps * 0.045);
 
-  return @{
+  NSMutableDictionary *payload = [@{
     @"counterType": @"CMPedometer",
     @"startDate": startDate ?: [NSNull null],
     @"endDate": endDate ?: [NSNull null],
@@ -245,7 +306,21 @@ RCT_EXPORT_METHOD(startStepsDetection) {
     @"floorsAscended": data.floorsAscended ?: [NSNull null],
     @"floorsDescended": data.floorsDescended ?: [NSNull null],
     @"calories": calories,
-  };
+  } mutableCopy];
+
+  if ([CMPedometer isPaceAvailable]) {
+    if (data.currentPace) {
+      payload[@"currentPaceSecPerM"] = data.currentPace;
+    }
+    if (data.averageActivePace) {
+      payload[@"averageActivePaceSecPerM"] = data.averageActivePace;
+    }
+  }
+  if ([CMPedometer isCadenceAvailable] && data.currentCadence) {
+    payload[@"currentCadenceStepsPerSec"] = data.currentCadence;
+  }
+
+  return [payload copy];
 }
 
 - (BOOL)authorizationStatus {

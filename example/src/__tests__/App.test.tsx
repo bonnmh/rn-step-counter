@@ -6,6 +6,8 @@ import App from "../App";
 jest.mock("@blife/rn-step-counter", () => ({
   addStepCounterErrorListener: jest.fn(() => ({ remove: jest.fn() })),
   addStepsSensorInfoListener: jest.fn(() => ({ remove: jest.fn() })),
+  addStepDetectedListener: jest.fn(() => ({ remove: jest.fn() })),
+  addPedometerEventListener: jest.fn(() => ({ remove: jest.fn() })),
   createStepCountFilter: jest.fn(() => (data: unknown) => data),
   isSensorWorking: jest.fn().mockReturnValue(false),
   isStepCountingSupported: jest.fn(),

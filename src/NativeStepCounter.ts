@@ -23,6 +23,20 @@ export type StepCountData = {
   floorsAscended?: number; // number of floors ascended (iOS only)
   floorsDescended?: number; // number of floors descended (iOS only)
   calories?: number;
+  /** iOS only — current pace in seconds per meter (CMPedometerData.currentPace). */
+  currentPaceSecPerM?: number;
+  /** iOS only — average active pace in seconds per meter (CMPedometerData.averageActivePace). */
+  averageActivePaceSecPerM?: number;
+  /** iOS only — step rate in steps per second (CMPedometerData.currentCadence). */
+  currentCadenceStepsPerSec?: number;
+};
+
+export type PedometerEventType = "pause" | "resume";
+
+export type PedometerEvent = {
+  type: PedometerEventType;
+  /** Unix timestamp in milliseconds. */
+  date: number;
 };
 
 export type StepCountingSupportResult = {
@@ -46,6 +60,7 @@ export type StepsSensorInfoIOS = {
   cadence: boolean;
   distance: boolean;
   floorCounting: boolean;
+  pedometerEventTracking?: boolean;
 };
 
 export type StepsSensorInfoAndroid = {
@@ -60,11 +75,12 @@ export type StepsSensorInfoAndroid = {
 export type StepsSensorInfo = StepsSensorInfoIOS | StepsSensorInfoAndroid;
 
 export const NAME = "StepCounter";
-export const VERSION = "0.3.1";
+export const VERSION = "1.2.0";
 export const eventName = "StepCounter.stepCounterUpdate";
 export const errorEventName = "StepCounter.errorOccurred";
 export const sensorInfoEventName = "StepCounter.stepsSensorInfo";
 export const stepDetectedEventName = "StepCounter.stepDetected";
+export const pedometerEventName = "StepCounter.pedometerEvent";
 
 export interface Spec extends TurboModule {
   /**

@@ -10,7 +10,9 @@ import {
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import {
+  addPedometerEventListener,
   addStepCounterErrorListener,
+  addStepDetectedListener,
   addStepsSensorInfoListener,
   createStepCountFilter,
   isSensorWorking,
@@ -131,6 +133,9 @@ export default function App(): React.JSX.Element {
               rawDistance: data.distance,
               startDate: data.startDate,
               endDate: data.endDate,
+              currentPaceSecPerM: data.currentPaceSecPerM,
+              averageActivePaceSecPerM: data.averageActivePaceSecPerM,
+              currentCadenceStepsPerSec: data.currentCadenceStepsPerSec,
             }),
           },
         ]);
@@ -157,6 +162,9 @@ export default function App(): React.JSX.Element {
             acceptedDistance: filteredData.distance,
             startDate: filteredData.startDate,
             endDate: filteredData.endDate,
+            currentPaceSecPerM: data.currentPaceSecPerM,
+            averageActivePaceSecPerM: data.averageActivePaceSecPerM,
+            currentCadenceStepsPerSec: data.currentCadenceStepsPerSec,
           }),
         },
       ]);
@@ -218,11 +226,21 @@ export default function App(): React.JSX.Element {
     const sensorInfoSubscription = addStepsSensorInfoListener((info) => {
       appendLog("stepsSensorInfo", info);
     });
+    const stepDetectedSubscription = addStepDetectedListener((detected) => {
+      if (detected) {
+        appendLog("stepDetected", { detected: true });
+      }
+    });
+    const pedometerEventSubscription = addPedometerEventListener((event) => {
+      appendLog("pedometerEvent", event);
+    });
 
     return () => {
       cancelled = true;
       errorSubscription.remove();
       sensorInfoSubscription.remove();
+      stepDetectedSubscription.remove();
+      pedometerEventSubscription.remove();
       stopStepCounter();
     };
     // run once

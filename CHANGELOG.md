@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.2.0] - 2026-06-12
+
+### Added
+
+- iOS `StepCountData` optional fields: `currentPaceSecPerM`, `averageActivePaceSecPerM`, `currentCadenceStepsPerSec` (from `CMPedometerData` when available).
+- `addPedometerEventListener` — subscribe to `StepCounter.pedometerEvent` pause/resume events via `CMPedometer.startEventUpdates`.
+- `pedometerEventName` constant and `PedometerEvent` / `PedometerEventType` types.
+- `StepsSensorInfoIOS.pedometerEventTracking` capability flag.
+
+### Fixed
+
+- iOS live `startStepCounterUpdate` no longer emits `StepCounter.stepDetected` on each batch update. `stepDetected` remains a per-motion pulse from `SOMotionDetecter` via the native `startStepsDetection` path only.
+- iOS pedometer pause/resume events use Core Motion `startEventUpdates` during live sessions (`startStepCounterUpdate` / `stopStepCounterUpdate`). There is no accelerometer fallback for pedometer events.
+
 ## [1.1.1] - 2026-06-08
 
 ### Changed

@@ -3,10 +3,13 @@ import StepCounterModule, {
   errorEventName,
   eventName,
   NAME,
+  pedometerEventName,
   sensorInfoEventName,
   stepDetectedEventName,
   VERSION,
   type CounterType,
+  type PedometerEvent,
+  type PedometerEventType,
   type Spec,
   type StepCountData,
   type StepCountingSupportResult,
@@ -285,7 +288,9 @@ export function addStepsSensorInfoListener(
 }
 
 /**
- * Subscribe to motion/step detection signals (`StepCounter.stepDetected`).
+ * Subscribe to motion detection signals (`StepCounter.stepDetected`).
+ * Emitted from the native motion detector path (e.g. `SOMotionDetecter`), not from
+ * cumulative `stepCounterUpdate` batches. Android may not emit during live sessions.
  */
 export function addStepDetectedListener(
   callback: (detected: boolean) => void
@@ -293,6 +298,23 @@ export function addStepDetectedListener(
   return StepEventEmitter.addListener(stepDetectedEventName, (payload) =>
     callback(Boolean(payload))
   );
+}
+
+/**
+ * Subscribe to pedestrian pause/resume events (`StepCounter.pedometerEvent`).
+ * iOS only — requires `CMPedometer.isPedometerEventTrackingAvailable`.
+ * Native delivery starts with `startStepCounterUpdate` and stops with
+ * `stopStepCounterUpdate`; subscribing alone does not start Core Motion event updates.
+ */
+export function addPedometerEventListener(
+  callback: (event: PedometerEvent) => void
+): EventSubscription {
+  return StepEventEmitter.addListener(pedometerEventName, (payload) => {
+    const event = payload as PedometerEvent;
+    if (event?.type === "pause" || event?.type === "resume") {
+      callback(event);
+    }
+  });
 }
 
 /**
@@ -350,10 +372,13 @@ export {
   errorEventName,
   eventName,
   NAME,
+  pedometerEventName,
   sensorInfoEventName,
   stepDetectedEventName,
   VERSION,
   type CounterType,
+  type PedometerEvent,
+  type PedometerEventType,
   type StepCountData,
   type StepCountingSupportResult,
   type StepCounterError,

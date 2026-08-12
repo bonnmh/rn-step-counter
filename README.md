@@ -176,6 +176,7 @@ import {
   addStepCounterErrorListener,
   addStepsSensorInfoListener,
   addStepDetectedListener,
+  addPedometerEventListener,
 } from "@blife/rn-step-counter";
 
 const errorSub = addStepCounterErrorListener((error) => {
@@ -186,7 +187,8 @@ errorSub.remove();
 
 - `addStepCounterErrorListener` — `StepCounter.errorOccurred` (iOS Core Motion errors)
 - `addStepsSensorInfoListener` — `StepCounter.stepsSensorInfo` (capability metadata; fired from `isStepCountingSupported` on iOS and when the Android sensor starts)
-- `addStepDetectedListener` — `StepCounter.stepDetected` (motion detection signal)
+- `addStepDetectedListener` — `StepCounter.stepDetected` (native motion-detector signal; not tied to each cumulative step update)
+- `addPedometerEventListener` — `StepCounter.pedometerEvent` (iOS pause/resume; requires an active `startStepCounterUpdate` session)
 
 ### `createStepCountFilter(options?)`
 
@@ -208,6 +210,9 @@ Formats raw `StepCountData` for display (steps, distance, time range, estimated 
 | `floorsAscended` | `number?` | iOS only |
 | `floorsDescended` | `number?` | iOS only |
 | `calories` | `number?` | Estimated calories when provided by native |
+| `currentPaceSecPerM` | `number?` | iOS only — current pace (seconds per meter) |
+| `averageActivePaceSecPerM` | `number?` | iOS only — average active pace (seconds per meter) |
+| `currentCadenceStepsPerSec` | `number?` | iOS only — step rate (steps per second) |
 
 ## Development
 
