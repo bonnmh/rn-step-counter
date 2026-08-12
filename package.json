@@ -40,6 +40,9 @@
     "test": "jest --runInBand --no-watchman",
     "prepare": "bob build",
     "typecheck": "tsc",
+    "release": "release-it",
+    "release:ci": "release-it --ci",
+    "release:dry-run": "release-it --dry-run",
     "watchman-reset": "watchman watch-del $PWD && watchman watch-project $PWD"
   },
   "keywords": [
