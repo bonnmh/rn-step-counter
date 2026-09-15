@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0] - 2026-09-15
+
+### Fixed
+
+- iOS live `startStepCounterUpdate` now emits **cumulative** `steps` from `sessionStartDate`, matching `distance` and `queryPedometerDataBetweenDates`. Previously `steps` was a delta from a session-start baseline, so apps that `Math.max` live events against today's stored total never updated the ring.
+- `createStepCountFilter` no longer treats fused CMPedometer batches as bursts when the batch window (`startDate`→`endDate`) is long enough for the new steps. Add `enabled: false` to skip cadence filtering.
+
 ## [1.2.1](https://github.com/bonnmh/rn-step-counter/compare/v1.2.0...v1.2.1) (2026-08-12)
 
 ### Features

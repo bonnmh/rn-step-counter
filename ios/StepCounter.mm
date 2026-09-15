@@ -11,10 +11,10 @@
 // Session control
 @property (nonatomic, strong) NSDate *sessionStartDate;
 
-// Baseline + monotonic
-@property (nonatomic) NSInteger baselineSteps;      // steps recorded at session start
-@property (nonatomic) NSInteger lastEmittedSteps;   // last emitted delta (monotonic)
-@property (nonatomic) BOOL baselineReady;
+// Monotonic guard for live updates (cumulative from sessionStartDate)
+@property (nonatomic) NSInteger lastEmittedSteps;
+
+- (void)emitCumulativeUpdate:(CMPedometerData *)data;
 @end
 
 @implementation StepCounter
@@ -112,68 +112,69 @@ RCT_EXPORT_METHOD(startStepCounterUpdate:(double)from) {
   // Reset session state atomically before starting new handlers.
   dispatch_sync(_stateQueue, ^{
     self->_sessionStartDate = requested;
-    self->_baselineSteps = 0;
     self->_lastEmittedSteps = 0;
-    self->_baselineReady = NO;
   });
 
-  // 1) Establish baseline at session start (start -> now).
-  // This makes "reset/restart" deterministic: emitted steps are delta since sessionStartDate.
+  // Seed with the current cumulative total so JS does not wait for the next step.
   [self.pedometer queryPedometerDataFromDate:_sessionStartDate
                                       toDate:now
                                  withHandler:^(CMPedometerData *data, NSError *error) {
-    dispatch_sync(self->_stateQueue, ^{
-      self->_baselineSteps = error ? 0 : data.numberOfSteps.integerValue;
-      self->_baselineReady = YES;
-    });
     if (error) {
       [self sendEventWithName:@"StepCounter.errorOccurred" body:error];
+      return;
     }
+    [self emitCumulativeUpdate:data];
   }];
 
-  // 2) Live updates from sessionStartDate.
+  // Live updates from sessionStartDate. `steps` and `distance` are both
+  // cumulative for [sessionStartDate, now], matching queryPedometerDataBetweenDates.
   [self.pedometer startPedometerUpdatesFromDate:_sessionStartDate
                                     withHandler:^(CMPedometerData *data, NSError *error) {
     if (error) {
       [self sendEventWithName:@"StepCounter.errorOccurred" body:error];
       return;
     }
-    if (!data) return;
-
-    __block NSDictionary *body = nil;
-    dispatch_sync(self->_stateQueue, ^{
-      if (!self->_baselineReady) return;
-
-      // Filter: accept only updates whose startDate matches the session start.
-      // iOS can interleave "segment/window" updates with different startDate values.
-      NSTimeInterval startDiff = fabs([data.startDate timeIntervalSinceDate:self->_sessionStartDate]);
-      if (startDiff > 1.0) return;
-
-      NSInteger cumulative = data.numberOfSteps.integerValue;
-      NSInteger delta = cumulative - self->_baselineSteps;
-
-      // If OS performs corrections or timestamps shift, delta can go negative.
-      // Clamp + rebase to keep future deltas sane.
-      if (delta < 0) {
-        delta = 0;
-        self->_baselineSteps = cumulative;
-      }
-
-      // Monotonic guard: never emit backwards.
-      if (delta <= self->_lastEmittedSteps) return;
-      self->_lastEmittedSteps = delta;
-
-      NSMutableDictionary *mBody = [[self dictionaryFromPedometerData:data] mutableCopy];
-      mBody[@"steps"] = @(delta);
-      mBody[@"counterType"] = @"CMPedometer";
-      body = [mBody copy];
-    });
-    if (body) {
-      [self sendEventWithName:@"StepCounter.stepCounterUpdate" body:body];
-    }
+    [self emitCumulativeUpdate:data];
   }];
 
   [self startPedometerEventUpdatesIfAvailable];
+}
+
+- (void)emitCumulativeUpdate:(CMPedometerData *)data {
+  if (!data) {
+    return;
+  }
+
+  __block NSDictionary *body = nil;
+  dispatch_sync(self->_stateQueue, ^{
+    if (!self->_sessionStartDate) {
+      return;
+    }
+
+    // iOS can interleave segment/window updates with a different startDate.
+    NSTimeInterval startDiff = fabs([data.startDate timeIntervalSinceDate:self->_sessionStartDate]);
+    if (startDiff > 1.0) {
+      return;
+    }
+
+    NSInteger cumulative = data.numberOfSteps.integerValue;
+    if (cumulative < 0) {
+      return;
+    }
+
+    if (cumulative <= self->_lastEmittedSteps) {
+      return;
+    }
+    self->_lastEmittedSteps = cumulative;
+
+    NSMutableDictionary *mBody = [[self dictionaryFromPedometerData:data] mutableCopy];
+    mBody[@"steps"] = @(cumulative);
+    mBody[@"counterType"] = @"CMPedometer";
+    body = [mBody copy];
+  });
+  if (body) {
+    [self sendEventWithName:@"StepCounter.stepCounterUpdate" body:body];
+  }
 }
 
 RCT_EXPORT_METHOD(stopStepCounterUpdate) {
@@ -183,9 +184,7 @@ RCT_EXPORT_METHOD(stopStepCounterUpdate) {
 
   dispatch_sync(_stateQueue, ^{
     self->_sessionStartDate = nil;
-    self->_baselineSteps = 0;
     self->_lastEmittedSteps = 0;
-    self->_baselineReady = NO;
   });
 }
 
@@ -343,9 +342,7 @@ RCT_EXPORT_METHOD(startStepsDetection) {
 
   _pedometer = [[CMPedometer alloc] init];
   _stateQueue = dispatch_queue_create("com.blife.rnstepcounter.state", DISPATCH_QUEUE_SERIAL);
-  _baselineSteps = 0;
   _lastEmittedSteps = 0;
-  _baselineReady = NO;
 
   return self;
 }

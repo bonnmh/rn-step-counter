@@ -80,6 +80,11 @@ export interface StepCountFilterOptions {
    * 250ms allows up to 4 steps/second, which is already faster than typical walking.
    */
   minimumStepIntervalMs?: number;
+  /**
+   * When false, the filter only rejects invalid/negative step values.
+   * Use this for fused pedometers (iOS CMPedometer) that already batch updates.
+   */
+  enabled?: boolean;
 }
 
 const DEFAULT_MINIMUM_STEP_INTERVAL_MS = 250;
@@ -122,8 +127,14 @@ export function parseStepData(data: StepCountData): ParsedStepCountData {
  * Android accelerometer fallback can also react to quick hand rotation. This
  * helper drops updates that imply an impossible cadence and rebases later
  * cumulative values so ignored burst steps do not come back on the next event.
+ *
+ * Fused pedometers (CMPedometer) often deliver a large batch after a pause
+ * with a long startDate→endDate window. Those batches are kept: a burst is
+ * only dropped when both the inter-event gap and the batch window are too
+ * short for the new steps.
  */
 export function createStepCountFilter(options: StepCountFilterOptions = {}): StepCountFilter {
+  const enabled = options.enabled !== false;
   const minimumStepIntervalMs =
     options.minimumStepIntervalMs && options.minimumStepIntervalMs > 0
       ? options.minimumStepIntervalMs
@@ -138,6 +149,10 @@ export function createStepCountFilter(options: StepCountFilterOptions = {}): Ste
       return null;
     }
 
+    if (!enabled) {
+      return data;
+    }
+
     if (previousRawData && data.steps < previousRawData.steps) {
       previousRawData = data;
       ignoredSteps = 0;
@@ -150,12 +165,23 @@ export function createStepCountFilter(options: StepCountFilterOptions = {}): Ste
     const distanceDelta = previousRawData
       ? data.distance - previousRawData.distance
       : data.distance;
-    const elapsedMs =
+    const interEventElapsedMs =
       Number.isFinite(data.endDate) && Number.isFinite(referenceTime)
         ? data.endDate - referenceTime
         : Number.POSITIVE_INFINITY;
-    const isSuspiciousBurst =
-      stepDelta > 0 && elapsedMs >= 0 && elapsedMs < stepDelta * minimumStepIntervalMs;
+    const batchElapsedMs =
+      Number.isFinite(data.endDate) && Number.isFinite(data.startDate)
+        ? data.endDate - data.startDate
+        : Number.POSITIVE_INFINITY;
+    const interEventBurst =
+      stepDelta > 0 &&
+      interEventElapsedMs >= 0 &&
+      interEventElapsedMs < stepDelta * minimumStepIntervalMs;
+    const batchBurst =
+      stepDelta > 0 &&
+      batchElapsedMs >= 0 &&
+      batchElapsedMs < Math.max(data.steps, stepDelta) * minimumStepIntervalMs;
+    const isSuspiciousBurst = interEventBurst && batchBurst;
 
     previousRawData = data;
 
@@ -325,6 +351,7 @@ export function addPedometerEventListener(
  * `CMStepCounter.startStepCountingUpdates` is deprecated since iOS 8.0. so used `CMPedometer.startUpdates` instead.
  * @see https://developer.apple.com/documentation/coremotion/cmpedometer/1613950-startupdates
  * @see https://developer.apple.com/documentation/coremotion/cmstepcounter/1616151-startstepcountingupdates
+ * On iOS, `steps` and `distance` are both cumulative for `[start, now]`.
  * @param {Date} start A date indicating the start of the range over which to measure steps.
  * @param {StepCountUpdateCallback} callBack - This callback function makes it easy for app developers to receive sensor events.
  * @returns {EventSubscription} - Returns a Subscription that enables you to call.

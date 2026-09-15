@@ -69,8 +69,8 @@ describe("exported constants", () => {
     expect(NAME).toBe("StepCounter");
   });
 
-  it('VERSION is "1.2.0"', () => {
-    expect(VERSION).toBe("1.2.0");
+  it('VERSION is "1.3.0"', () => {
+    expect(VERSION).toBe("1.3.0");
   });
 
   it('eventName is "StepCounter.stepCounterUpdate"', () => {
@@ -162,6 +162,21 @@ describe("createStepCountFilter", () => {
     expect(filter(stepData(1, 300))?.steps).toBe(1);
     expect(filter(stepData(2, 650))?.steps).toBe(2);
     expect(filter(stepData(3, 1000))?.steps).toBe(3);
+  });
+
+  it("keeps CMPedometer batch updates that arrive close together", () => {
+    const filter = createStepCountFilter({ minimumStepIntervalMs: 250 });
+    const fourHoursMs = 4 * 60 * 60 * 1000;
+
+    expect(filter(stepData(4000, fourHoursMs))?.steps).toBe(4000);
+    expect(filter(stepData(4500, fourHoursMs + 50))?.steps).toBe(4500);
+  });
+
+  it("passes through when disabled", () => {
+    const filter = createStepCountFilter({ enabled: false, minimumStepIntervalMs: 250 });
+
+    expect(filter(stepData(1, 100))?.steps).toBe(1);
+    expect(filter(stepData(80, 120))?.steps).toBe(80);
   });
 });
 

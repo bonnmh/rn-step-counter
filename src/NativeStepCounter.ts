@@ -75,7 +75,7 @@ export type StepsSensorInfoAndroid = {
 export type StepsSensorInfo = StepsSensorInfoIOS | StepsSensorInfoAndroid;
 
 export const NAME = "StepCounter";
-export const VERSION = "1.2.0";
+export const VERSION = "1.3.0";
 export const eventName = "StepCounter.stepCounterUpdate";
 export const errorEventName = "StepCounter.errorOccurred";
 export const sensorInfoEventName = "StepCounter.stepsSensorInfo";

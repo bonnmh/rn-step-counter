@@ -157,6 +157,8 @@ const today = await queryPedometerDataBetweenDates(start, new Date());
 
 Starts native step updates from `start` (JavaScript `Date`) and invokes `callback` with `StepCountData` on each event.
 
+On iOS, `steps` and `distance` are both **cumulative** for `[start, now]`, matching `queryPedometerDataBetweenDates`. A seed query runs immediately so the first event is today's total, not a delta since subscribe.
+
 Returns an `EventSubscription`. Call `stopStepCounterUpdate()` to stop.
 
 ### `stopStepCounterUpdate()`
@@ -194,6 +196,8 @@ errorSub.remove();
 
 Returns a stateful filter function. Drops bursts that exceed the configured cadence (default: 250 ms per step) and rebases cumulative counts so ignored steps are not applied later.
 
+A burst is dropped only when **both** the gap since the last event **and** the batch window (`startDate`→`endDate`) are too short for the new steps. That keeps fused CMPedometer deliveries after the app returns to the foreground. Pass `{ enabled: false }` to skip cadence filtering.
+
 ### `parseStepData(data)`
 
 Formats raw `StepCountData` for display (steps, distance, time range, estimated calories, daily goal progress).
@@ -202,7 +206,7 @@ Formats raw `StepCountData` for display (steps, distance, time range, estimated 
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `steps` | `number` | Step count for the interval |
+| `steps` | `number` | Cumulative steps for `[startDate, endDate]` |
 | `startDate` | `number` | Interval start (Unix ms) |
 | `endDate` | `number` | Interval end (Unix ms) |
 | `distance` | `number` | Distance in meters |
