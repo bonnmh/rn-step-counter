@@ -41,7 +41,7 @@ class AccelerometerService(
   counterModule: StepCounterModule,
   sensorManager: SensorManager,
 ) : SensorListenService(counterModule, sensorManager) {
-  override val sensorTypeString = "Accelerometer"
+  override val sensorTypeString = "ACCELEROMETER"
   override val sensorType = Sensor.TYPE_ACCELEROMETER
   override val detectedSensor: Sensor? = sensorManager.getDefaultSensor(sensorType)
   override var currentSteps: Double = 0.0
@@ -84,8 +84,14 @@ class AccelerometerService(
    * @see android.hardware.SensorEvent.values
    * @see android.hardware.SensorEvent.timestamp
    */
-  override fun updateCurrentSteps(eventData: FloatArray): Boolean {
-    val timeNs = System.nanoTime()
+  override fun updateCurrentSteps(
+    eventData: FloatArray,
+    eventTimestampNs: Long,
+  ): Boolean {
+    if (eventData.size < 3) {
+      return false
+    }
+    val timeNs = if (eventTimestampNs > 0L) eventTimestampNs else System.nanoTime()
     // First step is to update our guess of where the global z vector is.
     accelRingCounter++
     // We keep a rolling average of the last 50 values

@@ -10,11 +10,13 @@
 
 // Session control
 @property (nonatomic, strong) NSDate *sessionStartDate;
+@property (nonatomic) NSUInteger sessionGeneration;
 
 // Monotonic guard for live updates (cumulative from sessionStartDate)
 @property (nonatomic) NSInteger lastEmittedSteps;
 
-- (void)emitCumulativeUpdate:(CMPedometerData *)data;
+- (void)emitCumulativeUpdate:(CMPedometerData *)data forGeneration:(NSUInteger)generation;
+- (void)emitError:(NSError *)error forGeneration:(NSUInteger)generation;
 @end
 
 @implementation StepCounter
@@ -64,6 +66,7 @@ RCT_EXPORT_METHOD(isStepCountingSupported:(RCTPromiseResolveBlock)resolve
   resolve(@{
     @"granted": @([self authorizationStatus]),
     @"supported": @([CMPedometer isStepCountingAvailable]),
+    @"authorizationStatus": [self authorizationStatusString],
   });
 
   [self sendEventWithName:@"StepCounter.stepsSensorInfo"
@@ -89,65 +92,84 @@ RCT_EXPORT_METHOD(queryPedometerDataBetweenDates:(double)startDate
       reject(@"QUERY_FAILED", error.localizedDescription, error);
       return;
     }
-    resolve([self dictionaryFromPedometerData:pedometerData]);
+    resolve([self dictionaryFromPedometerData:pedometerData
+                            fallbackStartDate:start
+                              fallbackEndDate:end]);
   }];
 }
 
 RCT_EXPORT_METHOD(startStepCounterUpdate:(double)from) {
   // Stop any in-progress pedometer session before starting a new one.
   [self.pedometer stopPedometerUpdates];
+  [self stopPedometerEventUpdatesIfAvailable];
 
   // --- Timestamp guard (ms vs seconds) ---
   // Valid Unix timestamp in seconds is ~1.7–2.0e9 (2024–2033),
   // while milliseconds is ~1.7–2.0e12.
   double fromSeconds = (from > 1e12) ? (from / 1000.0) : from;
 
-  // Extra sanity: if caller accidentally passes ms-but-small (unlikely) or future timestamps,
-  // clamp to "now" to avoid "future date" sessions.
+  // Clamp any future timestamp to "now" so queryPedometerDataFromDate:toDate:
+  // never receives fromDate > toDate on slight JS/native clock skew.
   NSDate *now = [NSDate date];
   NSDate *requested = (fromSeconds > 0) ? [NSDate dateWithTimeIntervalSince1970:fromSeconds] : now;
-  if ([requested timeIntervalSinceDate:now] > 60.0) { // > 60s into the future
+  if ([requested compare:now] == NSOrderedDescending) {
     requested = now;
   }
+
   // Reset session state atomically before starting new handlers.
+  // Use -1 so an initial 0-step seed query emits once to initialize JS consumers.
+  __block NSUInteger generation = 0;
   dispatch_sync(_stateQueue, ^{
+    self->_sessionGeneration += 1;
+    generation = self->_sessionGeneration;
     self->_sessionStartDate = requested;
-    self->_lastEmittedSteps = 0;
+    self->_lastEmittedSteps = -1;
   });
 
   // Seed with the current cumulative total so JS does not wait for the next step.
-  [self.pedometer queryPedometerDataFromDate:_sessionStartDate
+  [self.pedometer queryPedometerDataFromDate:requested
                                       toDate:now
                                  withHandler:^(CMPedometerData *data, NSError *error) {
     if (error) {
-      [self sendEventWithName:@"StepCounter.errorOccurred" body:error];
+      [self emitError:error forGeneration:generation];
       return;
     }
-    [self emitCumulativeUpdate:data];
+    [self emitCumulativeUpdate:data forGeneration:generation];
   }];
 
-  // Live updates from sessionStartDate. `steps` and `distance` are both
+  // Live updates from requested start date. `steps` and `distance` are both
   // cumulative for [sessionStartDate, now], matching queryPedometerDataBetweenDates.
-  [self.pedometer startPedometerUpdatesFromDate:_sessionStartDate
+  [self.pedometer startPedometerUpdatesFromDate:requested
                                     withHandler:^(CMPedometerData *data, NSError *error) {
     if (error) {
-      [self sendEventWithName:@"StepCounter.errorOccurred" body:error];
+      [self emitError:error forGeneration:generation];
       return;
     }
-    [self emitCumulativeUpdate:data];
+    [self emitCumulativeUpdate:data forGeneration:generation];
   }];
 
   [self startPedometerEventUpdatesIfAvailable];
 }
 
-- (void)emitCumulativeUpdate:(CMPedometerData *)data {
+- (void)emitError:(NSError *)error forGeneration:(NSUInteger)generation {
+  __block BOOL isActiveGeneration = NO;
+  dispatch_sync(self->_stateQueue, ^{
+    isActiveGeneration = (self->_sessionStartDate != nil && self->_sessionGeneration == generation);
+  });
+  if (isActiveGeneration) {
+    [self sendEventWithName:@"StepCounter.errorOccurred"
+                       body:[self dictionaryFromError:error]];
+  }
+}
+
+- (void)emitCumulativeUpdate:(CMPedometerData *)data forGeneration:(NSUInteger)generation {
   if (!data) {
     return;
   }
 
   __block NSDictionary *body = nil;
   dispatch_sync(self->_stateQueue, ^{
-    if (!self->_sessionStartDate) {
+    if (!self->_sessionStartDate || self->_sessionGeneration != generation) {
       return;
     }
 
@@ -167,7 +189,10 @@ RCT_EXPORT_METHOD(startStepCounterUpdate:(double)from) {
     }
     self->_lastEmittedSteps = cumulative;
 
-    NSMutableDictionary *mBody = [[self dictionaryFromPedometerData:data] mutableCopy];
+    NSMutableDictionary *mBody = [[self dictionaryFromPedometerData:data
+                                                  fallbackStartDate:self->_sessionStartDate
+                                                    fallbackEndDate:data.endDate] mutableCopy];
+    mBody[@"startDate"] = @(llround(self->_sessionStartDate.timeIntervalSince1970 * 1000.0));
     mBody[@"steps"] = @(cumulative);
     mBody[@"counterType"] = @"CMPedometer";
     body = [mBody copy];
@@ -183,16 +208,23 @@ RCT_EXPORT_METHOD(stopStepCounterUpdate) {
   [[SOMotionDetecter sharedInstance] stopDetection];
 
   dispatch_sync(_stateQueue, ^{
+    self->_sessionGeneration += 1;
     self->_sessionStartDate = nil;
-    self->_lastEmittedSteps = 0;
+    self->_lastEmittedSteps = -1;
   });
+}
+
+- (void)invalidate {
+  [self stopStepCounterUpdate];
+  [super invalidate];
 }
 
 RCT_EXPORT_METHOD(startStepsDetection) {
   [[SOMotionDetecter sharedInstance]
    startDetectionWithUpdateBlock:^(NSError *error) {
     if (error) {
-      [self sendEventWithName:@"StepCounter.errorOccurred" body:error];
+      [self sendEventWithName:@"StepCounter.errorOccurred"
+                         body:[self dictionaryFromError:error]];
     } else {
       [self sendEventWithName:@"StepCounter.stepDetected" body:@true];
     }
@@ -202,16 +234,13 @@ RCT_EXPORT_METHOD(startStepsDetection) {
 #pragma mark - Pedometer events
 
 - (BOOL)isPedometerEventTrackingSupported {
-#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 100000
   if (@available(iOS 10.0, *)) {
     return [CMPedometer isPedometerEventTrackingAvailable];
   }
-#endif
   return NO;
 }
 
 - (void)startPedometerEventUpdatesIfAvailable {
-#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 100000
   if (![self isPedometerEventTrackingSupported]) {
     return;
   }
@@ -220,7 +249,8 @@ RCT_EXPORT_METHOD(startStepsDetection) {
     [self.pedometer stopPedometerEventUpdates];
     [self.pedometer startPedometerEventUpdatesWithHandler:^(CMPedometerEvent *event, NSError *error) {
       if (error) {
-        [self sendEventWithName:@"StepCounter.errorOccurred" body:error];
+        [self sendEventWithName:@"StepCounter.errorOccurred"
+                           body:[self dictionaryFromError:error]];
         return;
       }
       if (!event) {
@@ -240,22 +270,30 @@ RCT_EXPORT_METHOD(startStepsDetection) {
       [self sendEventWithName:@"StepCounter.pedometerEvent"
                          body:@{
                            @"type": type,
-                           @"date": @((long long)(event.date.timeIntervalSince1970 * 1000.0)),
+                           @"date": @(llround(event.date.timeIntervalSince1970 * 1000.0)),
                          }];
     }];
   }
-#endif
 }
 
 - (void)stopPedometerEventUpdatesIfAvailable {
-#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 100000
   if (@available(iOS 10.0, *)) {
     [self.pedometer stopPedometerEventUpdates];
   }
-#endif
 }
 
 #pragma mark - Sensor info / mapping
+
+- (NSDictionary *)dictionaryFromError:(NSError *)error {
+  if (!error) {
+    return @{@"message": @"Unknown CoreMotion error"};
+  }
+  return @{
+    @"message": error.localizedDescription ?: @"Unknown CoreMotion error",
+    @"code": @(error.code),
+    @"domain": error.domain ?: @"",
+  };
+}
 
 - (NSDate *)dateFromTimestamp:(double)timestamp {
   double seconds = (timestamp > 1e12) ? (timestamp / 1000.0) : timestamp;
@@ -269,6 +307,7 @@ RCT_EXPORT_METHOD(startStepsDetection) {
   return @{
     @"name": @"CMPedometer",
     @"granted": @([self authorizationStatus]),
+    @"authorizationStatus": [self authorizationStatusString],
     @"stepCounting": @([CMPedometer isStepCountingAvailable]),
     @"pace": @([CMPedometer isPaceAvailable]),
     @"cadence": @([CMPedometer isCadenceAvailable]),
@@ -278,35 +317,44 @@ RCT_EXPORT_METHOD(startStepsDetection) {
   };
 }
 
-- (NSDictionary *)dictionaryFromPedometerData:(CMPedometerData *)data {
+- (NSDictionary *)dictionaryFromPedometerData:(CMPedometerData *)data
+                            fallbackStartDate:(NSDate *)fallbackStart
+                              fallbackEndDate:(NSDate *)fallbackEnd {
+  NSDate *resolvedStart = data.startDate ?: fallbackStart ?: [NSDate date];
+  NSDate *resolvedEnd = data.endDate ?: fallbackEnd ?: resolvedStart;
+  NSNumber *startDate = @(llround(resolvedStart.timeIntervalSince1970 * 1000.0));
+  NSNumber *endDate = @(llround(resolvedEnd.timeIntervalSince1970 * 1000.0));
+
   if (!data) {
     return @{
       @"counterType": @"CMPedometer",
-      @"startDate": [NSNull null],
-      @"endDate": [NSNull null],
-      @"steps": [NSNull null],
-      @"distance": [NSNull null],
-      @"floorsAscended": [NSNull null],
-      @"floorsDescended": [NSNull null],
+      @"startDate": startDate,
+      @"endDate": endDate,
+      @"steps": @(0),
+      @"distance": @(0.0),
+      @"calories": @(0.0),
     };
   }
 
-  NSNumber *startDate = @((long long)(data.startDate.timeIntervalSince1970 * 1000.0));
-  NSNumber *endDate = @((long long)(data.endDate.timeIntervalSince1970 * 1000.0));
-  NSInteger steps = data.numberOfSteps.integerValue;
+  NSInteger steps = data.numberOfSteps ? MAX(0, data.numberOfSteps.integerValue) : 0;
+  double distance = data.distance ? MAX(0.0, data.distance.doubleValue) : 0.0;
   NSNumber *calories = @(steps * 0.045);
 
   NSMutableDictionary *payload = [@{
     @"counterType": @"CMPedometer",
-    @"startDate": startDate ?: [NSNull null],
-    @"endDate": endDate ?: [NSNull null],
-    @"steps": data.numberOfSteps ?: [NSNull null],
-    @"distance": data.distance ?: [NSNull null],
-    @"floorsAscended": data.floorsAscended ?: [NSNull null],
-    @"floorsDescended": data.floorsDescended ?: [NSNull null],
+    @"startDate": startDate,
+    @"endDate": endDate,
+    @"steps": @(steps),
+    @"distance": @(distance),
     @"calories": calories,
   } mutableCopy];
 
+  if (data.floorsAscended) {
+    payload[@"floorsAscended"] = data.floorsAscended;
+  }
+  if (data.floorsDescended) {
+    payload[@"floorsDescended"] = data.floorsDescended;
+  }
   if ([CMPedometer isPaceAvailable]) {
     if (data.currentPace) {
       payload[@"currentPaceSecPerM"] = data.currentPace;
@@ -322,16 +370,27 @@ RCT_EXPORT_METHOD(startStepsDetection) {
   return [payload copy];
 }
 
+- (NSString *)authorizationStatusString {
+  if (@available(iOS 11.0, *)) {
+    switch ([CMPedometer authorizationStatus]) {
+      case CMAuthorizationStatusNotDetermined:
+        return @"notDetermined";
+      case CMAuthorizationStatusRestricted:
+        return @"restricted";
+      case CMAuthorizationStatusDenied:
+        return @"denied";
+      case CMAuthorizationStatusAuthorized:
+        return @"authorized";
+    }
+  }
+  return @"unknown";
+}
+
 - (BOOL)authorizationStatus {
-#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 110000
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wpartial-availability"
-  CMAuthorizationStatus status = [CMPedometer authorizationStatus];
-  return status == CMAuthorizationStatusAuthorized;
-#pragma clang diagnostic pop
-#else
+  if (@available(iOS 11.0, *)) {
+    return [CMPedometer authorizationStatus] == CMAuthorizationStatusAuthorized;
+  }
   return NO;
-#endif
 }
 
 #pragma mark - Init
@@ -342,7 +401,7 @@ RCT_EXPORT_METHOD(startStepsDetection) {
 
   _pedometer = [[CMPedometer alloc] init];
   _stateQueue = dispatch_queue_create("com.blife.rnstepcounter.state", DISPATCH_QUEUE_SERIAL);
-  _lastEmittedSteps = 0;
+  _lastEmittedSteps = -1;
 
   return self;
 }

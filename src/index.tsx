@@ -8,6 +8,7 @@ import StepCounterModule, {
   stepDetectedEventName,
   VERSION,
   type CounterType,
+  type MotionAuthorizationStatus,
   type PedometerEvent,
   type PedometerEventType,
   type Spec,
@@ -68,7 +69,18 @@ const StepCounter = (
       )
 ) as Spec;
 
-const StepEventEmitter = new NativeEventEmitter(StepCounter);
+let _stepEventEmitter: NativeEventEmitter | null = null;
+
+function getStepEventEmitter(): NativeEventEmitter {
+  if (!_stepEventEmitter) {
+    if (!StepCounterModule) {
+      throw new Error(LINKING_ERROR);
+    }
+    _stepEventEmitter = new NativeEventEmitter(StepCounter);
+  }
+  return _stepEventEmitter;
+}
+
 type StepCountUpdateCallback = (data: StepCountData) => void;
 export type StepCountFilter = (data: StepCountData) => StepCountData | null;
 
@@ -102,16 +114,19 @@ let _activeSubscription: EventSubscription | null = null;
  */
 export function parseStepData(data: StepCountData): ParsedStepCountData {
   const { steps, startDate, endDate, distance } = data;
+  const safeSteps = Number.isFinite(steps) ? steps : 0;
+  const safeDistance = Number.isFinite(distance) ? distance : 0;
   const dailyGoal = 10000;
-  const stepsString = steps + " steps";
-  const kCal = (steps * 0.045).toFixed(2) + "kCal";
+  const stepsString = safeSteps + " steps";
+  const kCal = (safeSteps * 0.045).toFixed(2) + "kCal";
   const endDateTime = new Date(endDate).toLocaleTimeString("en-gb");
   const startDateTime = new Date(startDate).toLocaleTimeString("en-gb");
-  const roundedDistance = distance.toFixed(1) + "m";
-  const stepGoalStatus = steps >= dailyGoal ? "Goal Reached" : `${steps}/${dailyGoal} steps`;
+  const roundedDistance = safeDistance.toFixed(1) + "m";
+  const stepGoalStatus =
+    safeSteps >= dailyGoal ? "Goal Reached" : `${safeSteps}/${dailyGoal} steps`;
   return {
     dailyGoal: stepGoalStatus,
-    steps,
+    steps: safeSteps,
     stepsString,
     calories: kCal,
     startDate: startDateTime,
@@ -123,15 +138,16 @@ export function parseStepData(data: StepCountData): ParsedStepCountData {
 /**
  * Create a stateful filter for live step-count updates.
  *
- * Native pedometer APIs can already include device/OS false positives, and the
- * Android accelerometer fallback can also react to quick hand rotation. This
- * helper drops updates that imply an impossible cadence and rebases later
- * cumulative values so ignored burst steps do not come back on the next event.
+ * Native pedometer APIs on Android (especially the accelerometer fallback) can
+ * react to quick hand rotation. This helper drops updates that imply an
+ * impossible cadence and rebases later cumulative values so ignored burst steps
+ * do not come back on the next event.
  *
- * Fused pedometers (CMPedometer) often deliver a large batch after a pause
- * with a long startDate→endDate window. Those batches are kept: a burst is
- * only dropped when both the inter-event gap and the batch window are too
- * short for the new steps.
+ * Cadence burst rejection runs for `ACCELEROMETER` only. Fused Apple Core Motion
+ * pedometer updates (`CMPedometer`) and Android hardware `STEP_COUNTER` batches
+ * already apply their own filtering and legitimately deliver multi-step updates
+ * with short inter-callback gaps, so those counter types pass through. Steps
+ * already ignored in the same filter are still subtracted.
  */
 export function createStepCountFilter(options: StepCountFilterOptions = {}): StepCountFilter {
   const enabled = options.enabled !== false;
@@ -149,39 +165,65 @@ export function createStepCountFilter(options: StepCountFilterOptions = {}): Ste
       return null;
     }
 
+    const safeDistance = Number.isFinite(data.distance) ? data.distance : 0;
+
     if (!enabled) {
-      return data;
+      return safeDistance === data.distance ? data : { ...data, distance: safeDistance };
+    }
+
+    if (
+      previousRawData &&
+      (data.counterType !== previousRawData.counterType ||
+        data.startDate !== previousRawData.startDate)
+    ) {
+      previousRawData = null;
+      ignoredSteps = 0;
+      ignoredDistance = 0;
     }
 
     if (previousRawData && data.steps < previousRawData.steps) {
       previousRawData = data;
       ignoredSteps = 0;
       ignoredDistance = 0;
-      return data;
+      return safeDistance === data.distance ? data : { ...data, distance: safeDistance };
     }
 
+    const rebaseStepData = (raw: StepCountData): StepCountData => {
+      const steps = Math.max(0, raw.steps - ignoredSteps);
+      const distance = Math.max(0, safeDistance - ignoredDistance);
+      const calories =
+        typeof raw.calories === "number" && Number.isFinite(raw.calories)
+          ? Math.max(0, raw.calories - ignoredSteps * 0.045)
+          : raw.calories;
+      return {
+        ...raw,
+        steps,
+        distance,
+        ...(calories !== undefined ? { calories } : {}),
+      };
+    };
+
+    if (data.counterType === "CMPedometer" || data.counterType === "STEP_COUNTER") {
+      previousRawData = data;
+      if (ignoredSteps === 0 && ignoredDistance === 0) {
+        return safeDistance === data.distance ? data : { ...data, distance: safeDistance };
+      }
+      return rebaseStepData(data);
+    }
+
+    const previousDistance =
+      previousRawData && Number.isFinite(previousRawData.distance) ? previousRawData.distance : 0;
     const referenceTime = previousRawData ? previousRawData.endDate : data.startDate;
     const stepDelta = previousRawData ? data.steps - previousRawData.steps : data.steps;
-    const distanceDelta = previousRawData
-      ? data.distance - previousRawData.distance
-      : data.distance;
+    const distanceDelta = previousRawData ? safeDistance - previousDistance : safeDistance;
     const interEventElapsedMs =
       Number.isFinite(data.endDate) && Number.isFinite(referenceTime)
         ? data.endDate - referenceTime
         : Number.POSITIVE_INFINITY;
-    const batchElapsedMs =
-      Number.isFinite(data.endDate) && Number.isFinite(data.startDate)
-        ? data.endDate - data.startDate
-        : Number.POSITIVE_INFINITY;
-    const interEventBurst =
+    const isSuspiciousBurst =
       stepDelta > 0 &&
       interEventElapsedMs >= 0 &&
       interEventElapsedMs < stepDelta * minimumStepIntervalMs;
-    const batchBurst =
-      stepDelta > 0 &&
-      batchElapsedMs >= 0 &&
-      batchElapsedMs < Math.max(data.steps, stepDelta) * minimumStepIntervalMs;
-    const isSuspiciousBurst = interEventBurst && batchBurst;
 
     previousRawData = data;
 
@@ -194,14 +236,10 @@ export function createStepCountFilter(options: StepCountFilterOptions = {}): Ste
     }
 
     if (ignoredSteps === 0 && ignoredDistance === 0) {
-      return data;
+      return safeDistance === data.distance ? data : { ...data, distance: safeDistance };
     }
 
-    return {
-      ...data,
-      steps: Math.max(0, data.steps - ignoredSteps),
-      distance: Math.max(0, data.distance - ignoredDistance),
-    };
+    return rebaseStepData(data);
   };
 }
 
@@ -271,12 +309,18 @@ export function queryPedometerDataBetweenDates(start: Date, end: Date): Promise<
   if (Platform.OS !== "ios" || !StepCounter.queryPedometerDataBetweenDates) {
     throw new UnavailabilityError(NAME, "queryPedometerDataBetweenDates");
   }
-  if (start.getTime() > end.getTime()) {
+  const startTime = start.getTime();
+  const endTime = end.getTime();
+  if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) {
+    return Promise.reject(new Error("start and end must be valid Date instances"));
+  }
+  if (startTime > endTime) {
     return Promise.reject(new Error("start must be before or equal to end"));
   }
   const now = Date.now();
-  const endMs = Math.min(end.getTime(), now);
-  return StepCounter.queryPedometerDataBetweenDates(start.getTime(), endMs);
+  const endMs = Math.min(endTime, now);
+  const startMs = Math.min(startTime, endMs);
+  return StepCounter.queryPedometerDataBetweenDates(startMs, endMs);
 }
 
 /**
@@ -295,7 +339,7 @@ export function isSensorWorking(): boolean {
 export function addStepCounterErrorListener(
   callback: (error: StepCounterError) => void
 ): EventSubscription {
-  return StepEventEmitter.addListener(errorEventName, (payload) =>
+  return getStepEventEmitter().addListener(errorEventName, (payload) =>
     callback(normalizeStepCounterError(payload))
   );
 }
@@ -308,7 +352,7 @@ export function addStepCounterErrorListener(
 export function addStepsSensorInfoListener(
   callback: (info: StepsSensorInfo) => void
 ): EventSubscription {
-  return StepEventEmitter.addListener(sensorInfoEventName, (payload) =>
+  return getStepEventEmitter().addListener(sensorInfoEventName, (payload) =>
     callback(payload as StepsSensorInfo)
   );
 }
@@ -321,7 +365,7 @@ export function addStepsSensorInfoListener(
 export function addStepDetectedListener(
   callback: (detected: boolean) => void
 ): EventSubscription {
-  return StepEventEmitter.addListener(stepDetectedEventName, (payload) =>
+  return getStepEventEmitter().addListener(stepDetectedEventName, (payload) =>
     callback(Boolean(payload))
   );
 }
@@ -335,7 +379,7 @@ export function addStepDetectedListener(
 export function addPedometerEventListener(
   callback: (event: PedometerEvent) => void
 ): EventSubscription {
-  return StepEventEmitter.addListener(pedometerEventName, (payload) => {
+  return getStepEventEmitter().addListener(pedometerEventName, (payload) => {
     const event = payload as PedometerEvent;
     if (event?.type === "pause" || event?.type === "resume") {
       callback(event);
@@ -373,7 +417,7 @@ export function startStepCounterUpdate(
   _activeSubscription?.remove();
   _activeSubscription = null;
   const from = start.getTime();
-  _activeSubscription = StepEventEmitter.addListener(eventName, (data) =>
+  _activeSubscription = getStepEventEmitter().addListener(eventName, (data) =>
     callBack(data as StepCountData)
   );
   StepCounter.startStepCounterUpdate(from);
@@ -404,6 +448,7 @@ export {
   stepDetectedEventName,
   VERSION,
   type CounterType,
+  type MotionAuthorizationStatus,
   type PedometerEvent,
   type PedometerEventType,
   type StepCountData,

@@ -68,7 +68,7 @@ Add permissions and sensor features to your app manifest if they are not already
   android:required="false" />
 <uses-feature
   android:name="android.hardware.sensor.accelerometer"
-  android:required="true" />
+  android:required="false" />
 ```
 
 Request runtime permission before starting updates. The library reports permission status via `isStepCountingSupported()`.
@@ -133,10 +133,11 @@ See the full example app: [`example/src/App.tsx`](./example/src/App.tsx).
 
 ### `isStepCountingSupported()`
 
-Returns `Promise<{ supported: boolean; granted: boolean; working?: boolean }>`.
+Returns `Promise<{ supported: boolean; granted: boolean; authorizationStatus?: MotionAuthorizationStatus; working?: boolean }>`.
 
 - `supported` — device can count steps (hardware sensor or fallback)
 - `granted` — required motion/activity permission has been granted
+- `authorizationStatus` — `"notDetermined"` · `"restricted"` · `"denied"` · `"authorized"` · `"unknown"` (reflects `CMPedometer.authorizationStatus` on iOS; `"authorized"` or `"unknown"` on Android)
 - `working` — Android only: whether the native sensor service is currently active
 
 ### `queryPedometerDataBetweenDates(start, end)` (iOS only)
@@ -157,7 +158,8 @@ const today = await queryPedometerDataBetweenDates(start, new Date());
 
 Starts native step updates from `start` (JavaScript `Date`) and invokes `callback` with `StepCountData` on each event.
 
-On iOS, `steps` and `distance` are both **cumulative** for `[start, now]`, matching `queryPedometerDataBetweenDates`. A seed query runs immediately so the first event is today's total, not a delta since subscribe.
+- **iOS (`CMPedometer`):** `steps` and `distance` are cumulative for `[start, now]`, matching `queryPedometerDataBetweenDates`. An initial seed query runs immediately so JS receives the current cumulative total right away.
+- **Android (`STEP_COUNTER` / `ACCELEROMETER`):** Emits an immediate initial seed event on start. Hardware `STEP_COUNTER` persists the session baseline keyed by `start` (with reboot continuity), so restarting the app with the same `start` timestamp (such as `startOfToday()`) preserves cumulative daily progress and recovers hardware steps counted while the app was closed.
 
 Returns an `EventSubscription`. Call `stopStepCounterUpdate()` to stop.
 
@@ -194,9 +196,9 @@ errorSub.remove();
 
 ### `createStepCountFilter(options?)`
 
-Returns a stateful filter function. Drops bursts that exceed the configured cadence (default: 250 ms per step) and rebases cumulative counts so ignored steps are not applied later.
+Returns a stateful filter function. Drops bursts that exceed the configured cadence (default: 250 ms per step) on the Android accelerometer fallback and rebases cumulative counts so ignored steps are not applied later.
 
-A burst is dropped only when **both** the gap since the last event **and** the batch window (`startDate`→`endDate`) are too short for the new steps. That keeps fused CMPedometer deliveries after the app returns to the foreground. Pass `{ enabled: false }` to skip cadence filtering.
+Cadence burst rejection runs for `ACCELEROMETER` only. Fused iOS `CMPedometer` updates and Android hardware `STEP_COUNTER` batches already apply their own filtering and legitimately deliver multi-step updates with small inter-event gaps, so those counter types pass through. Steps already ignored in the same filter are still subtracted. Pass `{ enabled: false }` to disable cadence filtering on all counter types.
 
 ### `parseStepData(data)`
 

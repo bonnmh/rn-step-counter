@@ -4,11 +4,15 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.os.SystemClock
 import android.util.Log
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.bridge.WritableMap
 import com.stepcounter.StepCounterModule
+import java.util.concurrent.TimeUnit
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /**
  * the base class for sensor listen service
@@ -71,11 +75,8 @@ abstract class SensorListenService(
       }
 
   /**
-   * @return if the [sensor][detectedSensor] is
-   * [accelerometer][Sensor.TYPE_ACCELEROMETER],
-   * "Accelerometer"
-   * if it's [stepCounter][Sensor.TYPE_STEP_COUNTER],
-   * "Step Counter".
+   * @return `"ACCELEROMETER"` when [detectedSensor] is [Sensor.TYPE_ACCELEROMETER],
+   * or `"STEP_COUNTER"` when [Sensor.TYPE_STEP_COUNTER].
    */
   abstract val sensorTypeString: String
 
@@ -92,7 +93,7 @@ abstract class SensorListenService(
    * the current steps data of the user
    * @see currentSteps
    * @see distance
-   * @see endDate
+   * @see lastEventEpochMs
    * @see sensorTypeString
    * @see calories
    * @see WritableMap
@@ -101,33 +102,29 @@ abstract class SensorListenService(
   val stepsParamsMap: WritableMap
     get() =
       Arguments.createMap().apply {
-        putNumber("steps", currentSteps)
+        putInt("steps", currentSteps.roundToInt())
         putNumber("distance", distance)
         putNumber("startDate", startDate)
-        putNumber("endDate", endDate)
+        putNumber("endDate", lastEventEpochMs)
         putString("counterType", sensorTypeString)
         putNumber("calories", calories)
       }
 
-  val stepsSensorInfo: WritableMap
-    get() =
-      Arguments.createMap().apply {
-        putNumber("minDelay", detectedSensor!!.minDelay)
-        putNumber("maxDelay", detectedSensor!!.maxDelay)
-        putString("name", detectedSensor!!.name)
-        putString("vendor", detectedSensor!!.vendor)
-        putNumber("power", detectedSensor!!.power)
-        putNumber("resolution", detectedSensor!!.resolution)
-        putBoolean("wakeUpSensor", detectedSensor!!.isWakeUpSensor)
-        putBoolean("additionalInfoSupported", detectedSensor!!.isAdditionalInfoSupported)
-      }
+  private fun buildStepsSensorInfo(sensor: Sensor): WritableMap =
+    Arguments.createMap().apply {
+      putNumber("minDelay", sensor.minDelay)
+      putNumber("maxDelay", sensor.maxDelay)
+      putString("name", sensor.name)
+      putString("vendor", sensor.vendor)
+      putNumber("power", sensor.power)
+      putNumber("resolution", sensor.resolution)
+      putBoolean("wakeUpSensor", sensor.isWakeUpSensor)
+      putBoolean("additionalInfoSupported", sensor.isAdditionalInfoSupported)
+    }
 
   /**
    * Number of in-database-saved calories.
    * 0.045 is the average calories burned per step.
-   * to get more accurate result, you can use this formula:
-   * 0.045 * weight * distance,
-   * but then you need to get the weight of the user. so it needs some permission.
    */
   private val calories: Double
     get() = currentSteps * 0.045
@@ -144,6 +141,12 @@ abstract class SensorListenService(
   abstract var currentSteps: Double
 
   /**
+   * Whether the underlying Android sensor listener is currently registered.
+   */
+  var isListening: Boolean = false
+    private set
+
+  /**
    * Reset in-memory session state before a new counting session starts.
    */
   protected open fun resetSessionState() {
@@ -152,48 +155,87 @@ abstract class SensorListenService(
   /**
    * Start date of the step counting. UTC milliseconds
    */
-  private var startDate: Long = System.currentTimeMillis()
+  protected var startDate: Long = System.currentTimeMillis()
 
   /**
-   * End date of the step counting. UTC milliseconds
+   * End date of the latest accepted sensor event. UTC milliseconds
    */
-  private val endDate: Long
-    get() = System.currentTimeMillis()
+  private var lastEventEpochMs: Long = System.currentTimeMillis()
+  private var sensorClockAnchorNs: Long? = null
+  private var wallClockAnchorMs: Long = 0L
 
-  private val sensorDelay: Int
-    get() =
-      when (samplingPeriodUs) {
-        SensorManager.SENSOR_DELAY_FASTEST -> 0
-        SensorManager.SENSOR_DELAY_GAME -> 20000
-        SensorManager.SENSOR_DELAY_UI -> 66667
-        SensorManager.SENSOR_DELAY_NORMAL -> 200000
-        else -> samplingPeriodUs
-      }
+  private fun resolveEventEpochMillis(eventTimestampNs: Long): Long {
+    val nowWallMs = System.currentTimeMillis()
+    val floorMs = startDate.coerceAtMost(nowWallMs)
+    if (eventTimestampNs <= 0L) {
+      return nowWallMs.coerceAtLeast(floorMs)
+    }
 
-  /**
-   * this class is not implemented Service class now, but made it work so
-   * @see android.content.Context.startService
-   * @see android.content.Context.stopService
-   * @see SensorManager.registerListener
-   */
-  fun startService(startDateMillis: Long? = null) {
-    startDate =
-      startDateMillis?.takeIf { it > 0 } ?: System.currentTimeMillis()
-    resetSessionState()
-    counterModule.sendDeviceEvent("stepsSensorInfo", stepsSensorInfo)
-    Log.d(TAG_NAME, "SensorManager.stepsSensorInfo: $stepsSensorInfo")
-    sensorManager.registerListener(this, detectedSensor, samplingPeriodUs)
+    val elapsedNs = SystemClock.elapsedRealtimeNanos()
+    val ageMs = TimeUnit.NANOSECONDS.toMillis(elapsedNs - eventTimestampNs)
+    if (ageMs in -500L..10_000L) {
+      return (nowWallMs - ageMs).coerceIn(floorMs, nowWallMs)
+    }
+
+    // Fallback for OEM sensor HALs that stamp events in CLOCK_MONOTONIC (which pauses
+    // during deep sleep) instead of CLOCK_BOOTTIME (elapsedRealtimeNanos).
+    val anchorNs = sensorClockAnchorNs
+    if (anchorNs == null || eventTimestampNs < anchorNs) {
+      sensorClockAnchorNs = eventTimestampNs
+      wallClockAnchorMs = nowWallMs
+      return nowWallMs.coerceAtLeast(floorMs)
+    }
+
+    val deltaMs = TimeUnit.NANOSECONDS.toMillis(eventTimestampNs - anchorNs)
+    val anchoredWallMs = wallClockAnchorMs + deltaMs
+    if (abs(nowWallMs - anchoredWallMs) > 5_000L) {
+      sensorClockAnchorNs = eventTimestampNs
+      wallClockAnchorMs = nowWallMs
+      return nowWallMs.coerceAtLeast(floorMs)
+    }
+
+    return anchoredWallMs.coerceIn(floorMs, nowWallMs)
   }
 
   /**
-   * this class is not implemented Service class now, but made it work so
-   * @see android.content.Context.startService
-   * @see android.content.Context.stopService
-   * @see SensorManager.unregisterListener
+   * Register the sensor listener and emit sensor capability info.
+   */
+  fun startService(startDateMillis: Long? = null) {
+    val sensor = detectedSensor
+    if (sensor == null) {
+      isListening = false
+      counterModule.sendDeviceEvent(
+        "errorOccurred",
+        Arguments.createMap().apply {
+          putString("message", "Requested motion sensor ($sensorTypeString) is unavailable")
+        },
+      )
+      return
+    }
+
+    sensorManager.unregisterListener(this)
+    val nowMs = System.currentTimeMillis()
+    startDate = startDateMillis?.takeIf { it > 0 }?.coerceAtMost(nowMs) ?: nowMs
+    lastEventEpochMs = nowMs
+    sensorClockAnchorNs = null
+    wallClockAnchorMs = nowMs
+    resetSessionState()
+    val infoMap = buildStepsSensorInfo(sensor)
+    counterModule.sendDeviceEvent("stepsSensorInfo", infoMap)
+    Log.d(TAG_NAME, "SensorManager.stepsSensorInfo: $infoMap")
+    isListening = sensorManager.registerListener(this, sensor, samplingPeriodUs)
+    if (isListening) {
+      counterModule.sendDeviceEvent("stepCounterUpdate", stepsParamsMap)
+    }
+  }
+
+  /**
+   * Unregister the active sensor listener.
    */
   fun stopService() {
     Log.d(TAG_NAME, "SensorListenService.stopService")
     sensorManager.unregisterListener(this)
+    isListening = false
   }
 
   /**
@@ -229,19 +271,30 @@ abstract class SensorListenService(
     ) {
       return
     }
-    if (updateCurrentSteps(event.values)) {
+    if (updateCurrentSteps(event.values, event.timestamp)) {
+      val nowWallMs = System.currentTimeMillis()
+      val resolvedMs = resolveEventEpochMillis(event.timestamp)
+      lastEventEpochMs =
+        if (resolvedMs > lastEventEpochMs) {
+          resolvedMs
+        } else {
+          minOf(nowWallMs, lastEventEpochMs + 1L).coerceAtLeast(lastEventEpochMs)
+        }
       counterModule.sendDeviceEvent("stepCounterUpdate", stepsParamsMap)
     }
   }
 
   /**
-   * abstract method to update the current steps
-   * implemented in [StepCounterService] and [AccelerometerService]
-   * with different motion sensor handling algorithm.
+   * Abstract method to update the current steps, implemented in [StepCounterService]
+   * and [AccelerometerService] with sensor-specific algorithms.
    * @param eventData the detected vector of sensor event
-   * @return if the current steps is updated, return true, otherwise return false
+   * @param eventTimestampNs hardware sensor event timestamp in nanoseconds
+   * @return true if the current step count changed and should be emitted
    */
-  abstract fun updateCurrentSteps(eventData: FloatArray): Boolean
+  abstract fun updateCurrentSteps(
+    eventData: FloatArray,
+    eventTimestampNs: Long,
+  ): Boolean
 
   /**
    * Called when the accuracy of the registered sensor has changed.

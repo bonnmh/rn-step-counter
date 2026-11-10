@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.0.0] - 2026-11-10
+
+### Breaking / Behavioral Changes
+
+- **Android `AndroidManifest.xml` & Gradle toolchain:** Removed `android.permission.BODY_SENSORS_BACKGROUND` and the deprecated `package` attribute, changed `android.hardware.sensor.accelerometer` to `android:required="false"`, and upgraded the Android library build target to Java 17 / Kotlin 2.1.
+- **Android `CounterType` runtime values:** Standardized Android `counterType` payloads to `"STEP_COUNTER"` and `"ACCELEROMETER"` (matching the exported TypeScript `CounterType` union instead of `"Step Counter"` / `"Accelerometer"`).
+- **Android persistent session baselines & initial seed event:** `StepCounterService` now persists hardware baselines per `startDate` (with `BOOT_COUNT` reboot continuity) so calling `startStepCounterUpdate(startOfToday())` across app restarts continues accumulating from the day's baseline and recovers steps counted by `TYPE_STEP_COUNTER` while the process was stopped. Both Android sensor services now emit an initial seed `stepCounterUpdate` immediately upon `startStepCounterUpdate`, matching iOS.
+- **`isStepCountingSupported()` on Android:** No longer emits a spurious `StepCounter.stepDetected` event during read-only permission checks, and reports `ACTIVITY_RECOGNITION` permission accurately on Android 10+ (API 29+) devices with hardware `TYPE_STEP_COUNTER`.
+
+### Added
+
+- Optional `authorizationStatus` (`"notDetermined"` | `"restricted"` | `"denied"` | `"authorized"` | `"unknown"`) on `isStepCountingSupported()` and `StepsSensorInfoIOS`, allowing apps to distinguish never-prompted vs denied Core Motion permission states.
+- Typed `wakeUpSensor` and `additionalInfoSupported` fields on `StepsSensorInfoAndroid`.
+
+### Fixed
+
+- **Android sensor clock-domain skew & dynamic upgrade:** `SensorListenService` handles OEM sensor HALs that report `SensorEvent.timestamp` in `CLOCK_MONOTONIC` instead of `CLOCK_BOOTTIME` without freezing `endDate`, guarantees monotonic `endDate` progression across accepted step updates, and automatically upgrades from `AccelerometerService` to `StepCounterService` once `ACTIVITY_RECOGNITION` is granted.
+- **`createStepCountFilter` accuracy & sensor transition safety:** Fused `CMPedometer` updates and Android hardware `STEP_COUNTER` batches bypass synthetic cadence burst rejection, `ACCELEROMETER` keeps burst filtering active all day, filter state (`ignoredSteps`, `ignoredDistance`) resets cleanly when `counterType` or `startDate` changes, and `calories` rebases alongside `steps`.
+- **Lazy `NativeEventEmitter` initialization:** Deferred `new NativeEventEmitter(...)` creation until an event listener is registered so importing pure utilities (`createStepCountFilter`, `parseStepData`, constants) never crashes when the native module is unlinked or mocked.
+- **iOS `CMPedometer` concurrency, range safety & lifecycle cleanup:** Added session generation guards in `StepCounter.mm` so stale seed queries cannot emit updates or errors after `stopStepCounterUpdate()`, clamped all future `from` timestamps to `now`, avoided unprotected reads of `_sessionStartDate`, replaced `NSNull` placeholders, serialized `NSError` payloads for Bridgeless/New Architecture, and implemented `invalidate()` teardown on both iOS and Android.
+
 ## [1.3.0] - 2026-09-15
 
 ### Fixed

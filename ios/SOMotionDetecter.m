@@ -31,13 +31,12 @@
 
 - (instancetype)init {
   self = [super init];
+  if (!self) {
+    return nil;
+  }
 
   self.motionManager = [CMMotionManager new];
   self.motionManager.accelerometerUpdateInterval = kUpdateInterval;
-  self.motionManager.deviceMotionUpdateInterval = kUpdateInterval;
-  self.motionManager.gyroUpdateInterval = kUpdateInterval;
-  self.motionManager.magnetometerUpdateInterval = kUpdateInterval;
-  self.motionManager.showsDeviceMovementDisplay = YES;
   self.queue = [NSOperationQueue new];
   self.queue.maxConcurrentOperationCount = 1;
 

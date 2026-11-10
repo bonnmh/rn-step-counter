@@ -39,9 +39,22 @@ export type PedometerEvent = {
   date: number;
 };
 
+export type MotionAuthorizationStatus =
+  | "notDetermined"
+  | "restricted"
+  | "denied"
+  | "authorized"
+  | "unknown";
+
 export type StepCountingSupportResult = {
   supported: boolean;
   granted: boolean;
+  /**
+   * Granular motion permission status.
+   * - iOS: reflects `CMPedometer.authorizationStatus` (`notDetermined`, `restricted`, `denied`, `authorized`).
+   * - Android: `"authorized"` when granted (or API < 29), `"unknown"` otherwise.
+   */
+  authorizationStatus?: MotionAuthorizationStatus;
   /** Android only: whether the sensor service is currently active */
   working?: boolean;
 };
@@ -55,6 +68,7 @@ export type StepCounterError = {
 export type StepsSensorInfoIOS = {
   name: string;
   granted: boolean;
+  authorizationStatus?: MotionAuthorizationStatus;
   stepCounting: boolean;
   pace: boolean;
   cadence: boolean;
@@ -70,12 +84,14 @@ export type StepsSensorInfoAndroid = {
   maxDelay: number;
   power: number;
   resolution: number;
+  wakeUpSensor?: boolean;
+  additionalInfoSupported?: boolean;
 };
 
 export type StepsSensorInfo = StepsSensorInfoIOS | StepsSensorInfoAndroid;
 
 export const NAME = "StepCounter";
-export const VERSION = "1.3.0";
+export const VERSION = "2.0.0";
 export const eventName = "StepCounter.stepCounterUpdate";
 export const errorEventName = "StepCounter.errorOccurred";
 export const sensorInfoEventName = "StepCounter.stepsSensorInfo";

@@ -6,6 +6,7 @@ import {
   parseStepData,
   NAME,
   VERSION,
+  type CounterType,
   type StepCountData,
 } from "../index";
 import {
@@ -69,8 +70,8 @@ describe("exported constants", () => {
     expect(NAME).toBe("StepCounter");
   });
 
-  it('VERSION is "1.3.0"', () => {
-    expect(VERSION).toBe("1.3.0");
+  it('VERSION is "2.0.0"', () => {
+    expect(VERSION).toBe("2.0.0");
   });
 
   it('eventName is "StepCounter.stepCounterUpdate"', () => {
@@ -127,6 +128,14 @@ describe("parseStepData", () => {
     expect(result.startDate).toBe("22:13:20");
     expect(result.endDate).toBe("23:13:20");
   });
+
+  it("falls back safely when distance or steps are non-finite", () => {
+    const malformed = {
+      ...base,
+      distance: Number.NaN,
+    };
+    expect(parseStepData(malformed).distance).toBe("0.0m");
+  });
 });
 
 // ─── createStepCountFilter ───────────────────────────────────────────────────
@@ -134,9 +143,13 @@ describe("parseStepData", () => {
 describe("createStepCountFilter", () => {
   const startDate = 1700000000000;
 
-  function stepData(steps: number, endOffsetMs: number): StepCountData {
+  function stepData(
+    steps: number,
+    endOffsetMs: number,
+    counterType: CounterType = "STEP_COUNTER"
+  ): StepCountData {
     return {
-      counterType: "STEP_COUNTER",
+      counterType,
       steps,
       startDate,
       endDate: startDate + endOffsetMs,
@@ -147,13 +160,25 @@ describe("createStepCountFilter", () => {
   it("drops rotation-like bursts that exceed the configured cadence", () => {
     const filter = createStepCountFilter({ minimumStepIntervalMs: 250 });
 
-    expect(filter(stepData(1, 100))).toBeNull();
-    expect(filter(stepData(2, 180))).toBeNull();
+    expect(filter(stepData(1, 100, "ACCELEROMETER"))).toBeNull();
+    expect(filter(stepData(2, 180, "ACCELEROMETER"))).toBeNull();
 
-    const next = filter(stepData(3, 1000));
+    const next = filter(stepData(3, 1000, "ACCELEROMETER"));
 
     expect(next?.steps).toBe(1);
     expect(next?.distance).toBeCloseTo(0.762);
+  });
+
+  it("drops Android rotation bursts even hours after startOfToday", () => {
+    const filter = createStepCountFilter({ minimumStepIntervalMs: 250 });
+    const fourHoursMs = 4 * 60 * 60 * 1000;
+
+    expect(filter(stepData(1000, fourHoursMs, "ACCELEROMETER"))?.steps).toBe(1000);
+    // 2 false steps in 80ms hours after session start must still be rejected
+    expect(filter(stepData(1002, fourHoursMs + 80, "ACCELEROMETER"))).toBeNull();
+    // Legitimate step 400ms later is rebased cleanly
+    const next = filter(stepData(1003, fourHoursMs + 480, "ACCELEROMETER"));
+    expect(next?.steps).toBe(1001);
   });
 
   it("keeps normal walking cadence unchanged", () => {
@@ -164,12 +189,27 @@ describe("createStepCountFilter", () => {
     expect(filter(stepData(3, 1000))?.steps).toBe(3);
   });
 
+  it("keeps STEP_COUNTER hardware batches that arrive close together", () => {
+    const filter = createStepCountFilter({ minimumStepIntervalMs: 250 });
+
+    expect(filter(stepData(100, 1000, "STEP_COUNTER"))?.steps).toBe(100);
+    expect(filter(stepData(108, 1400, "STEP_COUNTER"))?.steps).toBe(108);
+    expect(filter(stepData(109, 1800, "STEP_COUNTER"))?.steps).toBe(109);
+  });
+
   it("keeps CMPedometer batch updates that arrive close together", () => {
     const filter = createStepCountFilter({ minimumStepIntervalMs: 250 });
     const fourHoursMs = 4 * 60 * 60 * 1000;
 
-    expect(filter(stepData(4000, fourHoursMs))?.steps).toBe(4000);
-    expect(filter(stepData(4500, fourHoursMs + 50))?.steps).toBe(4500);
+    expect(filter(stepData(4000, fourHoursMs, "CMPedometer"))?.steps).toBe(4000);
+    expect(filter(stepData(4500, fourHoursMs + 50, "CMPedometer"))?.steps).toBe(4500);
+  });
+
+  it("keeps initial CMPedometer seed batches right after midnight", () => {
+    const filter = createStepCountFilter({ minimumStepIntervalMs: 250 });
+
+    expect(filter(stepData(12, 500, "CMPedometer"))?.steps).toBe(12);
+    expect(filter(stepData(15, 550, "CMPedometer"))?.steps).toBe(15);
   });
 
   it("passes through when disabled", () => {
@@ -177,6 +217,69 @@ describe("createStepCountFilter", () => {
 
     expect(filter(stepData(1, 100))?.steps).toBe(1);
     expect(filter(stepData(80, 120))?.steps).toBe(80);
+  });
+
+  it("resets ignored burst offsets when upgrading from ACCELEROMETER to STEP_COUNTER", () => {
+    const filter = createStepCountFilter({ minimumStepIntervalMs: 250 });
+
+    // Reject 3 accelerometer burst steps -> ignoredSteps = 3
+    expect(filter(stepData(3, 100, "ACCELEROMETER"))).toBeNull();
+
+    // User grants permission -> sensor upgrades to STEP_COUNTER with cumulative 5 steps (>= 3)
+    const upgraded = filter(stepData(5, 800, "STEP_COUNTER"));
+    expect(upgraded?.steps).toBe(5);
+    expect(upgraded?.distance).toBeCloseTo(5 * 0.762);
+  });
+
+  it("resets ignored burst offsets when startDate changes to a new session", () => {
+    const filter = createStepCountFilter({ minimumStepIntervalMs: 250 });
+
+    expect(filter(stepData(2, 80, "ACCELEROMETER"))).toBeNull();
+
+    const nextSessionStart = startDate + 60_000;
+    const freshSessionStep = filter({
+      counterType: "ACCELEROMETER",
+      steps: 2,
+      startDate: nextSessionStart,
+      endDate: nextSessionStart + 600,
+      distance: 2 * 0.762,
+      calories: 2 * 0.045,
+    });
+    expect(freshSessionStep?.steps).toBe(2);
+    expect(freshSessionStep?.calories).toBeCloseTo(2 * 0.045);
+  });
+
+  it("rebases calories alongside steps and distance after a rejected burst", () => {
+    const filter = createStepCountFilter({ minimumStepIntervalMs: 250 });
+
+    expect(
+      filter({ ...stepData(2, 100, "ACCELEROMETER"), calories: 2 * 0.045 })
+    ).toBeNull();
+
+    const accepted = filter({
+      ...stepData(4, 900, "ACCELEROMETER"),
+      calories: 4 * 0.045,
+    });
+    expect(accepted?.steps).toBe(2);
+    expect(accepted?.calories).toBeCloseTo(2 * 0.045);
+  });
+});
+
+describe("lazy NativeEventEmitter initialization", () => {
+  it("allows importing pure helpers without throwing when native module is null", () => {
+    let loaded: typeof import("../index") | undefined;
+    expect(() => {
+      jest.isolateModules(() => {
+        (TurboModuleRegistry.getEnforcing as jest.Mock).mockReturnValue(null);
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        loaded = require("../index") as typeof import("../index");
+      });
+    }).not.toThrow();
+
+    expect(loaded?.VERSION).toBe("2.0.0");
+    expect(loaded?.createStepCountFilter()(
+      { counterType: "CMPedometer", steps: 10, startDate: 1000, endDate: 2000, distance: 7.5 }
+    )?.steps).toBe(10);
   });
 });
 
@@ -195,13 +298,18 @@ describe("isStepCountingSupported", () => {
 
   it("forwards an unsupported/not-granted result without modification", async () => {
     const nativeMock = makeNativeMock({
-      isStepCountingSupported: jest.fn().mockResolvedValue({ supported: false, granted: false }),
+      isStepCountingSupported: jest.fn().mockResolvedValue({
+        supported: false,
+        granted: false,
+        authorizationStatus: "denied",
+      }),
     });
     const { isStepCountingSupported } = loadModule(nativeMock);
 
     const result = await isStepCountingSupported();
     expect(result.supported).toBe(false);
     expect(result.granted).toBe(false);
+    expect(result.authorizationStatus).toBe("denied");
   });
 });
 
@@ -303,6 +411,23 @@ describe("queryPedometerDataBetweenDates", () => {
 
     expect(nativeMock.queryPedometerDataBetweenDates).toHaveBeenCalledWith(
       start.getTime(),
+      1700003600000
+    );
+    nowSpy.mockRestore();
+  });
+
+  it("clamps start date to endMs when both start and end are slightly ahead of Date.now()", async () => {
+    Object.defineProperty(Platform, "OS", { configurable: true, value: "ios" });
+    const nowSpy = jest.spyOn(Date, "now").mockReturnValue(1700003600000);
+    const nativeMock = makeNativeMock();
+    const { queryPedometerDataBetweenDates: query } = loadModule(nativeMock);
+    const start = new Date(1700003600005);
+    const end = new Date(1700003600010);
+
+    await query(start, end);
+
+    expect(nativeMock.queryPedometerDataBetweenDates).toHaveBeenCalledWith(
+      1700003600000,
       1700003600000
     );
     nowSpy.mockRestore();
